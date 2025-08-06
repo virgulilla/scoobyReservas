@@ -27,6 +27,15 @@ const BottomTabs = ({ isAdmin }) => {
           💰 <span className="text-xs">Precios</span>
         </NavLink>
 
+        <NavLink
+          to="/comidas"
+          className={({ isActive }) =>
+            `${baseClasses} ${isActive ? activeClasses : ""}`
+          }
+        >
+          🍗 <span className="text-xs">Comidas</span>
+        </NavLink>
+
         {/* Tabs solo para administradores */}
         {isAdmin && (
           <>
@@ -37,14 +46,6 @@ const BottomTabs = ({ isAdmin }) => {
               }
             >
               📈 <span className="text-xs">Reportes</span>
-            </NavLink>
-            <NavLink
-              to="/nueva-reserva"
-              className={({ isActive }) =>
-                `${baseClasses} ${isActive ? activeClasses : ""}`
-              }
-            >
-              ✏️ <span className="text-xs">Reservar</span>
             </NavLink>
           </>
         )}

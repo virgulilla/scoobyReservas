@@ -5,6 +5,7 @@ import CalendarioScreen from "./pages/CalendarioScreen";
 import NuevaReservaScreen from "./pages/NuevaReservaScreen";
 import PreciosScreen from "./pages/PreciosScreen";
 import ReportesScreen from "./pages/ReportesScreen";
+import ComidasScreen from "./pages/ComidasScreen"; // Importa el nuevo componente
 
 function App() {
   return (
@@ -21,6 +22,8 @@ function App() {
           <Route path="calendario" element={<CalendarioScreen />} />
           <Route path="precios" element={<PreciosScreen />} />
           <Route path="reportes" element={<ReportesScreen />} />
+          <Route path="comidas" element={<ComidasScreen />} />{" "}
+          {/* ¡Nueva ruta añadida! */}
           <Route path="nueva-reserva" element={<NuevaReservaScreen />} />
           {/* Añadimos la ruta de edición con el parámetro :id */}
           <Route path="editar-reserva/:id" element={<NuevaReservaScreen />} />
