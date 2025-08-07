@@ -683,7 +683,7 @@ const NuevaReservaScreen = () => {
                 Teléfono
               </label>
               <input
-                type="text"
+                type="number"
                 name="telefono"
                 value={searchQuery.telefono}
                 onChange={handleSearchChange}
@@ -781,7 +781,7 @@ const NuevaReservaScreen = () => {
                     Teléfono
                   </label>
                   <input
-                    type="text"
+                    type="number"
                     name="telefono"
                     value={newClientData.telefono}
                     onChange={(e) =>
