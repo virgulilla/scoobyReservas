@@ -26,7 +26,10 @@ function App() {
           {/* ¡Nueva ruta añadida! */}
           <Route path="nueva-reserva" element={<NuevaReservaScreen />} />
           {/* Añadimos la ruta de edición con el parámetro :id */}
-          <Route path="editar-reserva/:id" element={<NuevaReservaScreen />} />
+          <Route
+            path="editar-reserva/:bookingId"
+            element={<NuevaReservaScreen />}
+          />
         </Route>
       </Routes>
     </Router>

@@ -89,9 +89,7 @@ const CalendarioScreen = () => {
   }, [selectedDate]);
 
   const handleBookingClick = (bookingId) => {
-    if (userRole === "admin") {
-      navigate(`/editar-reserva/${bookingId}`);
-    }
+    navigate(`/editar-reserva/${bookingId}`);
   };
 
   if (userRole === null) {
@@ -177,12 +175,6 @@ const CalendarioScreen = () => {
                     </div>
                   )}
                 </div>
-
-                {isEntrada && (
-                  <p className="text-sm font-semibold text-green-600 mt-1">
-                    Día de entrada
-                  </p>
-                )}
               </div>
             );
           })
