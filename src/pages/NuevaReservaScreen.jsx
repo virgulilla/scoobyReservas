@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { db, auth } from "../firebase/config"; // Asegúrate de que 'auth' está exportado desde tu configuración de firebase
+import { db, auth } from "../firebase/config";
 import {
   doc,
   getDoc,
@@ -14,7 +14,7 @@ import {
   endAt,
   getDocs,
 } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth"; // Importa la función de autenticación
+import { onAuthStateChanged } from "firebase/auth";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
 
@@ -22,11 +22,10 @@ import "react-calendar/dist/Calendar.css";
 const DIAS_LARGA_ESTANCIA = 30; // Primeras 30 noches a precio normal
 
 const NuevaReservaScreen = () => {
+  const [hasUserTouchedForm, setHasUserTouchedForm] = useState(false);
   const navigate = useNavigate();
-  // Obtiene el bookingId de los parámetros de la URL
   const { bookingId } = useParams();
 
-  // Nuevo estado para el rol del usuario
   const [userRole, setUserRole] = useState(null);
 
   // Estados para la búsqueda y selección del cliente
@@ -63,6 +62,11 @@ const NuevaReservaScreen = () => {
     pago_anticipado: 0,
     descripcion: "",
   });
+
+  // Nuevo estado para saber si el precio total fue modificado manualmente
+  const [isPriceModifiedManually, setIsPriceModifiedManually] = useState(false);
+  // Nuevo estado para controlar si estamos en el proceso de carga inicial de una reserva
+  const [isLoadingBooking, setIsLoadingBooking] = useState(!!bookingId);
 
   const [loading, setLoading] = useState(false);
   const [prices, setPrices] = useState(null);
@@ -163,43 +167,34 @@ const NuevaReservaScreen = () => {
     return precioTotal > 0 ? precioTotal : 0;
   };
 
-  // ----------------------------------------------------
-  // NUEVA LÓGICA DE AUTENTICACIÓN Y ROLES
-  // ----------------------------------------------------
+  // Lógica de autenticación y roles
   useEffect(() => {
-    // Escucha los cambios en el estado de autenticación de Firebase
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Si hay un usuario logueado, obtén su rol de la colección 'userRoles'
         const userRoleDocRef = doc(db, "users", user.uid);
         const userRoleDocSnap = await getDoc(userRoleDocRef);
 
         if (userRoleDocSnap.exists()) {
           setUserRole(userRoleDocSnap.data().role);
         } else {
-          // Si el usuario no tiene un rol definido, asigna 'user' por defecto
           setUserRole("user");
           console.log(
             "No se encontró el rol para el usuario. Rol asignado: 'user'."
           );
         }
       } else {
-        // No hay usuario logueado
         setUserRole(null);
       }
     });
 
-    // Limpia el listener cuando el componente se desmonta
     return () => unsubscribe();
   }, []);
-  // ----------------------------------------------------
 
   // Efecto para cargar los precios de Firestore y la reserva si es para editar
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
 
-      // Cargar los precios primero
       const pricesDocRef = doc(db, "prices", "tarifas2");
       const pricesDocSnap = await getDoc(pricesDocRef);
       if (pricesDocSnap.exists()) {
@@ -213,8 +208,9 @@ const NuevaReservaScreen = () => {
         return;
       }
 
-      // Si existe un bookingId, cargar los datos de la reserva y el cliente
       if (bookingId) {
+        // Marcamos que estamos en proceso de carga
+        setIsLoadingBooking(true);
         try {
           const bookingDocRef = doc(db, "reservations", bookingId);
           const bookingDocSnap = await getDoc(bookingDocRef);
@@ -222,7 +218,6 @@ const NuevaReservaScreen = () => {
           if (bookingDocSnap.exists()) {
             const bookingData = bookingDocSnap.data();
 
-            // Cargar el cliente asociado a la reserva
             const clientDocRef = doc(db, "clients", bookingData.id_cliente);
             const clientDocSnap = await getDoc(clientDocRef);
 
@@ -245,14 +240,12 @@ const NuevaReservaScreen = () => {
               pago_anticipado: bookingData.pago_anticipado,
               descripcion: bookingData.descripcion,
             });
-
             // Setear el rango de fechas
             setDateRange([
               new Date(bookingData.fecha_entrada),
               new Date(bookingData.fecha_salida),
             ]);
 
-            // Cargar el motivo de la cancelación si la reserva está cancelada
             if (bookingData.is_cancelada) {
               setMessage("Esta reserva ha sido cancelada.");
               setCancellationReason(bookingData.motivo_cancelacion || "");
@@ -266,16 +259,23 @@ const NuevaReservaScreen = () => {
         } catch (error) {
           console.error("Error al cargar la reserva:", error);
           setMessage("Ocurrió un error al cargar la reserva.");
+        } finally {
+          // Aseguramos que el flag de carga se desactiva
+          setIsLoadingBooking(false);
         }
       }
 
       setLoading(false);
     };
     fetchData();
-  }, [bookingId]); // El efecto se ejecuta al cargar y cuando cambia el bookingId
+  }, [bookingId]);
 
   // Efecto para recalcular el precio total cuando cambian las fechas o el número de perros
+  // Ahora, la condición de si el precio fue modificado manualmente está aquí dentro.
   useEffect(() => {
+    if (!hasUserTouchedForm || isLoadingBooking || isPriceModifiedManually)
+      return;
+
     if (prices && dateRange[0] && dateRange[1]) {
       const precioCalculado = calculatePrice(
         dateRange[0],
@@ -287,7 +287,14 @@ const NuevaReservaScreen = () => {
         total_pago: precioCalculado,
       }));
     }
-  }, [dateRange, form.num_perros, prices]);
+  }, [
+    dateRange,
+    form.num_perros,
+    prices,
+    isLoadingBooking,
+    isPriceModifiedManually,
+    hasUserTouchedForm,
+  ]);
 
   // Maneja los cambios en los campos de búsqueda
   const handleSearchChange = (e) => {
@@ -315,7 +322,6 @@ const NuevaReservaScreen = () => {
         String.fromCharCode(
           perroNombreLower.charCodeAt(perroNombreLower.length - 1) + 1
         );
-
       clientQuery = query(
         clientsCollectionRef,
         orderBy("perro_nombre"),
@@ -369,6 +375,8 @@ const NuevaReservaScreen = () => {
     }));
     setSearchResults([]);
     setMessage("");
+    // Reinicia el flag de modificación manual cuando se cambia de cliente
+    setIsPriceModifiedManually(false);
   };
 
   // Maneja el cambio de la foto y crea una vista previa
@@ -427,11 +435,13 @@ const NuevaReservaScreen = () => {
     try {
       const docRef = await addDoc(collection(db, "clients"), {
         ...newClientData,
+        perro_nombre: newClientData.perro_nombre.toLowerCase(),
         foto_url: photoURL,
       });
       const newClient = {
         ...newClientData,
         id: docRef.id,
+        perro_nombre: newClientData.perro_nombre.toLowerCase(),
         foto_url: photoURL,
       };
       setSelectedClient(newClient);
@@ -465,12 +475,21 @@ const NuevaReservaScreen = () => {
 
   // Maneja cambios en el formulario de reserva (num_perros, pago_anticipado, etc.)
   const handleChange = (e) => {
-    // Solo permite cambios si el rol es 'admin'
     if (userRole !== "admin" && bookingId) {
       setMessage("No tienes permisos para editar esta reserva.");
       return;
     }
+
     const { name, value } = e.target;
+
+    if (name === "total_pago") {
+      setIsPriceModifiedManually(true);
+    }
+
+    if (name === "num_perros") {
+      setHasUserTouchedForm(true);
+    }
+
     setForm((prevForm) => ({
       ...prevForm,
       [name]:
@@ -484,16 +503,20 @@ const NuevaReservaScreen = () => {
 
   // Maneja el cambio del calendario
   const handleCalendarChange = (newDateRange) => {
-    // Solo permite cambios si el rol es 'admin'
     if (userRole !== "admin" && bookingId) {
       setMessage("No tienes permisos para editar esta reserva.");
       return;
     }
+
+    setHasUserTouchedForm(true);
+
     if (newDateRange[0] && !newDateRange[1]) {
       setDateRange([newDateRange[0], newDateRange[0]]);
     } else {
       setDateRange(newDateRange);
     }
+
+    setIsPriceModifiedManually(false);
   };
 
   // Maneja el envío del formulario para crear/editar la reserva
@@ -609,6 +632,11 @@ const NuevaReservaScreen = () => {
       setLoading(false);
       handleCloseModal();
     }
+  };
+
+  const handleResetPrice = () => {
+    setIsPriceModifiedManually(false);
+    setHasUserTouchedForm(true);
   };
 
   const commonInputClasses =
@@ -902,128 +930,134 @@ const NuevaReservaScreen = () => {
               </div>
             )}
             <div className="w-full text-center">
-              <p>
-                <b>Perro:</b> {selectedClient.perro_nombre}
+              <p className="font-bold text-lg text-gray-800">
+                Cliente: {selectedClient.dueño_nombre}
               </p>
-              <p>
-                <b>Dueño:</b> {selectedClient.dueño_nombre}
+              <p className="text-md text-gray-600">
+                Perro: {selectedClient.perro_nombre}
               </p>
-              <p>
-                <b>Teléfono:</b> {selectedClient.telefono}
+              <p className="text-sm text-gray-500">
+                Teléfono: {selectedClient.telefono}
               </p>
-              <p>
-                <b>Observaciones:</b> {selectedClient.observaciones}
+              <p className="text-sm text-gray-500 italic">
+                Observaciones: {selectedClient.observaciones}
               </p>
-              <p>
-                <b>Microchip:</b> {selectedClient.microxip}
-              </p>
-              <button
-                onClick={() => setSelectedClient(null)}
-                className="mt-2 text-sm text-red-500 hover:text-red-700 font-medium"
-              >
-                Cambiar cliente
-              </button>
             </div>
           </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
-            <label className="block">
-              <span className="text-gray-700">Rango de Fechas</span>
-              <Calendar
-                onChange={handleCalendarChange}
-                value={dateRange}
-                selectRange={true}
-                className="mt-1 w-full rounded-md shadow-sm"
-                readOnly={isFormReadOnly}
-              />
-            </label>
-            <label className="block">
-              <span className="text-gray-700">Número de Perros</span>
-              <input
-                type="number"
-                name="num_perros"
-                value={form.num_perros}
-                onChange={handleChange}
-                className={commonInputClasses}
-                min="1"
-                required
-                readOnly={isFormReadOnly}
-              />
-            </label>
-            <label className="block">
-              <span className="text-gray-700">Total a Pagar (€)</span>
-              <input
-                type="number"
-                name="total_pago"
-                value={form.total_pago}
-                onChange={handleChange}
-                className={commonInputClasses}
-                required
-              />
-            </label>
-            <label className="block">
-              <span className="text-gray-700">Pago Anticipado (€)</span>
-              <input
-                type="number"
-                name="pago_anticipado"
-                value={form.pago_anticipado}
-                onChange={handleChange}
-                className={commonInputClasses}
-                readOnly={isFormReadOnly}
-              />
-            </label>
-            <label className="block">
-              <span className="text-gray-700">Descripción</span>
-              <textarea
-                name="descripcion"
-                value={form.descripcion}
-                onChange={handleChange}
-                rows="3"
-                className={commonInputClasses}
-                readOnly={isFormReadOnly}
-              ></textarea>
-            </label>
+            <div className="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+              <div className="flex-1">
+                <div className="mt-1">
+                  <Calendar
+                    selectRange
+                    onChange={handleCalendarChange}
+                    value={dateRange}
+                    locale="es-ES"
+                    minDate={bookingId ? undefined : new Date()}
+                    readOnly={isFormReadOnly}
+                  />
+                </div>
+              </div>
+              <div className="flex-1 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Número de Perros
+                  </label>
+                  <input
+                    type="number"
+                    name="num_perros"
+                    value={form.num_perros}
+                    onChange={handleChange}
+                    className={commonInputClasses}
+                    min="1"
+                    readOnly={isFormReadOnly}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Precio Total (€)
+                    {!isPriceModifiedManually && (
+                      <span className="ml-2 text-green-600 text-xs">
+                        (Automático)
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="number"
+                    name="total_pago"
+                    value={form.total_pago}
+                    onChange={handleChange}
+                    className={commonInputClasses}
+                    readOnly={isFormReadOnly}
+                  />
+                  {isPriceModifiedManually && (
+                    <button
+                      type="button"
+                      onClick={handleResetPrice}
+                      className="mt-2 text-sm text-red-600 hover:text-red-800 font-semibold"
+                      disabled={isFormReadOnly}
+                    >
+                      Restablecer precio automático
+                    </button>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Pago Anticipado (€)
+                  </label>
+                  <input
+                    type="number"
+                    name="pago_anticipado"
+                    value={form.pago_anticipado}
+                    onChange={handleChange}
+                    className={commonInputClasses}
+                    readOnly={isFormReadOnly}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Descripción de la Reserva
+                  </label>
+                  <textarea
+                    name="descripcion"
+                    value={form.descripcion}
+                    onChange={handleChange}
+                    className={commonInputClasses}
+                    rows="3"
+                    readOnly={isFormReadOnly}
+                  ></textarea>
+                </div>
+              </div>
+            </div>
 
-            {/* Renderiza el botón de guardar solo si es un nuevo formulario o si el rol es 'admin' */}
-            {(!bookingId || userRole === "admin") && (
+            <button
+              type="submit"
+              disabled={loading || isFormReadOnly}
+              className={commonButtonClasses}
+            >
+              {loading ? "Guardando..." : "Guardar Reserva"}
+            </button>
+            {bookingId && !isFormReadOnly && (
               <button
-                type="submit"
-                disabled={loading || isFormReadOnly}
-                className={commonButtonClasses}
+                type="button"
+                onClick={handleCancelBookingClick}
+                className="w-full px-4 py-2 mt-2 font-bold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
               >
-                {loading
-                  ? bookingId
-                    ? "Guardando cambios..."
-                    : "Creando Reserva..."
-                  : bookingId
-                  ? "Guardar Cambios"
-                  : "Crear Reserva"}
+                Cancelar Reserva
               </button>
             )}
           </form>
-
-          {/* Botón de Cancelar Reserva (visible solo en modo edición y para 'admin') */}
-          {bookingId && userRole === "admin" && (
-            <button
-              onClick={handleCancelBookingClick}
-              className="mt-4 w-full px-4 py-2 font-bold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-            >
-              Cancelar Reserva
-            </button>
-          )}
         </div>
       )}
 
-      {/* Modal para cancelar reserva */}
+      {/* Modal de Cancelación */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-600 bg-opacity-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Confirmar Cancelación
-            </h2>
-            <p className="mb-4 text-gray-700">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex justify-center items-center">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+            <h3 className="text-xl font-bold mb-4">Confirmar Cancelación</h3>
+            <p className="text-gray-700 mb-4">
               ¿Estás seguro de que quieres cancelar esta reserva? Por favor,
-              introduce un motivo.
+              indica el motivo.
             </p>
             <textarea
               value={cancellationReason}
@@ -1032,17 +1066,17 @@ const NuevaReservaScreen = () => {
               placeholder="Motivo de la cancelación..."
               rows="3"
             ></textarea>
-            <div className="flex justify-end space-x-4">
+            <div className="flex justify-end space-x-2">
               <button
                 onClick={handleCloseModal}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
               >
                 Cerrar
               </button>
               <button
                 onClick={handleConfirmCancellation}
-                disabled={loading || !cancellationReason}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                disabled={loading}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
               >
                 {loading ? "Cancelando..." : "Confirmar"}
               </button>
