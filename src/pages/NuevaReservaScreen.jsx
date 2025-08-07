@@ -308,7 +308,6 @@ const NuevaReservaScreen = () => {
 
     const clientsCollectionRef = collection(db, "clients");
     let clientQuery;
-
     if (searchQuery.perro_nombre) {
       const perroNombreLower = searchQuery.perro_nombre.toLowerCase();
       const endSearch =
@@ -438,7 +437,7 @@ const NuevaReservaScreen = () => {
       setSelectedClient(newClient);
       setForm((prevForm) => ({
         ...prevForm,
-        perro_nombre: newClient.perro_nombre,
+        perro_nombre: newClient.perro_nombre.toLowerCase(),
         telefono: newClient.telefono,
         descripcion: "",
       }));

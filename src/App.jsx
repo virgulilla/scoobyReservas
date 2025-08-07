@@ -5,7 +5,23 @@ import CalendarioScreen from "./pages/CalendarioScreen";
 import NuevaReservaScreen from "./pages/NuevaReservaScreen";
 import PreciosScreen from "./pages/PreciosScreen";
 import ReportesScreen from "./pages/ReportesScreen";
-import ComidasScreen from "./pages/ComidasScreen"; // Importa el nuevo componente
+import ComidasScreen from "./pages/ComidasScreen";
+import GestionClientesScreen from "./pages/GestionClientesScreen"; // Importa el nuevo componente
+
+// Componente de marcador de posición para la gestión de clientes
+// Puedes reemplazar esto con la lógica real de la página
+const PlaceholderGestionClientesScreen = () => {
+  return (
+    <div style={{ padding: "20px" }}>
+      <h1 style={{ fontSize: "2rem", fontWeight: "bold" }}>
+        Gestión de Clientes
+      </h1>
+      <p style={{ marginTop: "10px" }}>
+        Aquí se mostrará la interfaz para buscar, crear y ver clientes.
+      </p>
+    </div>
+  );
+};
 
 function App() {
   return (
@@ -25,7 +41,8 @@ function App() {
           <Route path="comidas" element={<ComidasScreen />} />{" "}
           {/* ¡Nueva ruta añadida! */}
           <Route path="nueva-reserva" element={<NuevaReservaScreen />} />
-          {/* Añadimos la ruta de edición con el parámetro :id */}
+          <Route path="gestion-clientes" element={<GestionClientesScreen />} />
+          {/* Añadimos la ruta de gestión de clientes */}
           <Route
             path="editar-reserva/:bookingId"
             element={<NuevaReservaScreen />}
