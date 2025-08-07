@@ -34,6 +34,12 @@ const ReportsScreen = () => {
 
     querySnapshot.forEach((doc) => {
       const booking = doc.data();
+
+      // No tener en cuenta las reservas canceladas para los reportes
+      if (booking.is_cancelada) {
+        return;
+      }
+
       const salidaDate = new Date(booking.fecha_salida);
 
       if (salidaDate.getFullYear() === selectedYear) {

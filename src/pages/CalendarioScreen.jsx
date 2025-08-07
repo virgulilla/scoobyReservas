@@ -41,6 +41,7 @@ const CalendarioScreen = () => {
     const day = String(date.getDate()).padStart(2, "0");
     const dateString = `${year}-${month}-${day}`;
 
+    // Obtener todas las reservas que cumplen la condición de fecha
     const bookingsQuery = query(
       collection(db, "reservations"),
       where("fecha_entrada", "<=", dateString)
@@ -52,6 +53,11 @@ const CalendarioScreen = () => {
 
     querySnapshot.forEach((doc) => {
       const bookingData = { id: doc.id, ...doc.data() };
+
+      // Filtra las reservas canceladas antes de mostrarlas
+      if (bookingData.is_cancelada === true) {
+        return;
+      }
 
       if (bookingData.fecha_salida >= dateString) {
         fetchedBookings.push(bookingData);

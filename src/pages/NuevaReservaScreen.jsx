@@ -1,14 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { db } from "../firebase/config";
-import {
-  doc,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  collection,
-} from "firebase/firestore";
+import { doc, getDoc, addDoc, updateDoc, collection } from "firebase/firestore";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
 
@@ -32,6 +25,8 @@ const NuevaReservaScreen = () => {
   const [dateRange, setDateRange] = useState([null, null]);
   const [loading, setLoading] = useState(true);
   const [prices, setPrices] = useState(null);
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
 
   const calculatePrice = (startDate, endDate, numPerros) => {
     if (
@@ -225,18 +220,31 @@ const NuevaReservaScreen = () => {
     }
   };
 
-  const handleDelete = async () => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar esta reserva?")) {
-      setLoading(true);
-      try {
-        await deleteDoc(doc(db, "reservations", id));
-        console.log("Reserva eliminada con éxito");
-        navigate("/calendario");
-      } catch (error) {
-        console.error("Error al eliminar la reserva:", error);
-        setLoading(false);
-      }
+  const handleCancel = () => {
+    setShowCancellationModal(true);
+  };
+
+  const confirmCancellation = async () => {
+    setLoading(true);
+    try {
+      const docRef = doc(db, "reservations", id);
+      await updateDoc(docRef, {
+        is_cancelada: true,
+        motivo_cancelacion: cancellationReason,
+      });
+      console.log("Reserva cancelada con éxito");
+      navigate("/calendario");
+    } catch (error) {
+      console.error("Error al cancelar la reserva:", error);
+      setLoading(false);
+    } finally {
+      setShowCancellationModal(false);
     }
+  };
+
+  const cancelCancellation = () => {
+    setShowCancellationModal(false);
+    setCancellationReason("");
   };
 
   const pageTitle = id ? "Editar Reserva" : "Nueva Reserva";
@@ -335,15 +343,54 @@ const NuevaReservaScreen = () => {
           {id && (
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={handleCancel}
               className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
               disabled={loading}
             >
-              {loading ? "Eliminando..." : "Eliminar"}
+              {loading ? "Eliminando..." : "Cancelar Reserva"}
             </button>
           )}
         </div>
       </form>
+
+      {/* Modal de confirmación de cancelación */}
+      {showCancellationModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+          <div className="relative p-8 bg-white w-96 max-w-md mx-auto rounded-xl shadow-lg">
+            <h2 className="text-xl font-bold mb-4">Confirmar Cancelación</h2>
+            <p className="mb-4">
+              ¿Estás seguro de que quieres cancelar esta reserva?
+            </p>
+
+            <label className="block mb-4">
+              <span className="text-gray-700">
+                Motivo de la cancelación (opcional)
+              </span>
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                rows="3"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+              ></textarea>
+            </label>
+
+            <div className="flex space-x-4">
+              <button
+                onClick={confirmCancellation}
+                className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+              >
+                Confirmar Cancelación
+              </button>
+              <button
+                onClick={cancelCancellation}
+                className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

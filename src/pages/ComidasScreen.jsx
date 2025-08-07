@@ -22,6 +22,7 @@ const ComidasScreen = () => {
     const day = String(today.getDate()).padStart(2, "0");
     const dateString = `${year}-${month}-${day}`;
 
+    // Consulta todas las reservas que entraron en o antes de hoy
     const bookingsQuery = query(
       collection(db, "reservations"),
       where("fecha_entrada", "<=", dateString)
@@ -33,6 +34,12 @@ const ComidasScreen = () => {
     querySnapshot.forEach((doc) => {
       const bookingData = { id: doc.id, ...doc.data() };
 
+      // Omitir las reservas que han sido canceladas
+      if (bookingData.is_cancelada) {
+        return;
+      }
+
+      // Filtrar para mostrar solo los perros que aún están pernoctando
       if (bookingData.fecha_salida > dateString) {
         pernoctando.push({
           id: doc.id,
@@ -49,18 +56,21 @@ const ComidasScreen = () => {
   const toggleComido = async (perroId, haComidoActual) => {
     const perroDocRef = doc(db, "reservations", perroId);
 
-    await updateDoc(perroDocRef, {
-      ha_comido: !haComidoActual,
-    });
+    try {
+      await updateDoc(perroDocRef, {
+        ha_comido: !haComidoActual,
+      });
 
-    setPerrosPernoctando(
-      perrosPernoctando.map((perro) =>
-        perro.id === perroId ? { ...perro, haComido: !haComidoActual } : perro
-      )
-    );
+      setPerrosPernoctando(
+        perrosPernoctando.map((perro) =>
+          perro.id === perroId ? { ...perro, haComido: !haComidoActual } : perro
+        )
+      );
+    } catch (error) {
+      console.error("Error al actualizar el estado de la comida:", error);
+    }
   };
 
-  // Nueva función para desmarcar todos los perros
   const uncheckAll = async () => {
     const today = new Date();
     const year = today.getFullYear();
@@ -68,24 +78,27 @@ const ComidasScreen = () => {
     const day = String(today.getDate()).padStart(2, "0");
     const dateString = `${year}-${month}-${day}`;
 
-    // Obtener solo las reservas de perros que pernoctan y que están marcadas
+    // Obtener las reservas que pernoctan, que están marcadas y que NO han sido canceladas
     const pernoctandoQuery = query(
       collection(db, "reservations"),
       where("fecha_salida", ">", dateString),
-      where("ha_comido", "==", true)
+      where("ha_comido", "==", true),
+      where("is_cancelada", "==", false) // Nueva condición para excluir canceladas
     );
 
-    const querySnapshot = await getDocs(pernoctandoQuery);
-
-    if (querySnapshot.size > 0) {
-      const batch = writeBatch(db);
-      querySnapshot.forEach((document) => {
-        batch.update(document.ref, { ha_comido: false });
-      });
-      await batch.commit();
-      console.log(`Desmarcadas ${querySnapshot.size} reservas.`);
-      // Refresca la lista después de actualizar Firestore
-      fetchPerrosPernoctando();
+    try {
+      const querySnapshot = await getDocs(pernoctandoQuery);
+      if (querySnapshot.size > 0) {
+        const batch = writeBatch(db);
+        querySnapshot.forEach((document) => {
+          batch.update(document.ref, { ha_comido: false });
+        });
+        await batch.commit();
+        console.log(`Desmarcadas ${querySnapshot.size} reservas.`);
+        fetchPerrosPernoctando();
+      }
+    } catch (error) {
+      console.error("Error al desmarcar todas las reservas:", error);
     }
   };
 
@@ -103,7 +116,6 @@ const ComidasScreen = () => {
         Control de Comidas del Día
       </h1>
 
-      {/* Botón para desmarcar todos */}
       {perrosPernoctando.length > 0 && (
         <button
           onClick={uncheckAll}
