@@ -23,9 +23,13 @@ const PreciosScreen = () => {
     // Escuchar cambios en el estado de autenticación para obtener el rol del usuario
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Obtener los custom claims para saber si es admin
-        const idTokenResult = await user.getIdTokenResult();
-        setUserRole(idTokenResult.claims.role || "user");
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          setUserRole(userDocSnap.data().role || "user");
+        } else {
+          setUserRole("user"); // valor por defecto si no hay documento
+        }
       } else {
         setUserRole("user"); // Si no hay usuario, el rol es 'user' por defecto
       }
