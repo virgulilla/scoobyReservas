@@ -7,7 +7,8 @@ import PreciosScreen from "./pages/PreciosScreen";
 import ReportesScreen from "./pages/ReportesScreen";
 import ComidasScreen from "./pages/ComidasScreen";
 import GestionClientesScreen from "./pages/GestionClientesScreen";
-import MapaScreen from "./pages/MapaScreen"; // Comentario: nueva importación
+import MapaScreen from "./pages/MapaScreen";
+import MorososScreen from "./pages/MorososScreen";
 
 function App() {
   return (
@@ -23,8 +24,8 @@ function App() {
           <Route path="precios" element={<PreciosScreen />} />
           <Route path="reportes" element={<ReportesScreen />} />
           <Route path="comidas" element={<ComidasScreen />} />
+          <Route path="/morosos" element={<MorososScreen />} />
           <Route path="mapa" element={<MapaScreen />} />{" "}
-          {/* Comentario: NUEVA RUTA */}
           <Route path="nueva-reserva" element={<NuevaReservaScreen />} />
           <Route path="gestion-clientes" element={<GestionClientesScreen />} />
           <Route

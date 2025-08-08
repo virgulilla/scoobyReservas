@@ -1,4 +1,4 @@
-// Comentario: Botonera inferior con tab adicional "Mapa" (solo admin)
+// Comentario: Botonera inferior con tab adicional "Mapa" (solo admin) y "Morosos"
 import React from "react";
 import { NavLink } from "react-router-dom";
 
@@ -36,6 +36,16 @@ const BottomTabs = ({ isAdmin }) => {
           }
         >
           👥 <span className="text-xs">Clientes</span>
+        </NavLink>
+
+        {/* Comentario: nuevo tab Morosos */}
+        <NavLink
+          to="/morosos"
+          className={({ isActive }) =>
+            `${baseClasses} ${isActive ? activeClasses : ""}`
+          }
+        >
+          💳 <span className="text-xs">Morosos</span>
         </NavLink>
 
         {/* Comentario: tabs solo para administradores */}
