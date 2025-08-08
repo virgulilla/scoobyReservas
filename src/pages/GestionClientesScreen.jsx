@@ -52,6 +52,7 @@ const GestionClientesScreen = () => {
   });
   const [photoPreview, setPhotoPreview] = useState(null);
   const [clientPhotoFile, setClientPhotoFile] = useState(null);
+  const [modalFoto, setModalFoto] = useState(null);
 
   // ------------------------------------------------------------
   // Comentario: estado del panel de historial
@@ -475,6 +476,7 @@ const GestionClientesScreen = () => {
                   src={cliente.foto_url}
                   alt={cliente.perro_nombre}
                   className="w-12 h-12 object-cover rounded-full"
+                  onClick={() => setModalFoto(cliente.foto_url)}
                 />
               ) : (
                 <div className="w-12 h-12 flex items-center justify-center bg-gray-200 rounded-full text-sm text-gray-500">
@@ -640,7 +642,19 @@ const GestionClientesScreen = () => {
           </div>
         </div>
       )}
-      {/* -------------------------------------------------------- */}
+      {modalFoto && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50"
+          onClick={() => setModalFoto(null)}
+        >
+          <img
+            src={modalFoto}
+            alt="Foto ampliada"
+            className="max-w-full max-h-full rounded-lg shadow-lg"
+            onClick={(e) => e.stopPropagation()} // evita cerrar si se hace clic sobre la imagen
+          />
+        </div>
+      )}
     </div>
   );
 };

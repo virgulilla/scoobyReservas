@@ -32,6 +32,8 @@ const NuevaReservaScreen = () => {
   const [loading, setLoading] = useState(false);
   const [prices, setPrices] = useState(null);
   const [message, setMessage] = useState("");
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [modalImageUrl, setModalImageUrl] = useState(null);
 
   // -------- Buscador (adaptado de MorososScreen) ----------
   const [searchTerm, setSearchTerm] = useState("");
@@ -858,7 +860,13 @@ const NuevaReservaScreen = () => {
 
           <div className="mb-4 p-3 bg-indigo-50 border-l-4 border-indigo-400 rounded-md flex flex-col items-center space-y-4">
             {selectedClient.foto_url && (
-              <div className="w-20 h-20 overflow-hidden rounded-full border-2 border-indigo-400">
+              <div
+                className="w-20 h-20 overflow-hidden rounded-full border-2 border-indigo-400"
+                onClick={() => {
+                  setModalImageUrl(selectedClient.foto_url);
+                  setShowImageModal(true);
+                }}
+              >
                 <img
                   src={selectedClient.foto_url}
                   alt={`Foto de ${selectedClient.perro_nombre}`}
@@ -1025,6 +1033,18 @@ const NuevaReservaScreen = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {showImageModal && modalImageUrl && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+          onClick={() => setShowImageModal(false)}
+        >
+          <img
+            src={modalImageUrl}
+            alt="Foto ampliada"
+            className="max-w-full max-h-full rounded-lg shadow-lg"
+          />
         </div>
       )}
     </div>
