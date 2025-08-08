@@ -6,6 +6,9 @@ import {
   startAt,
   endAt,
   startAfter,
+  endBefore,
+  limit,
+  limitToLast,
   getDocs,
   addDoc,
   updateDoc,
@@ -21,7 +24,8 @@ const GestionClientesScreen = () => {
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
-  const [prevDocsStack, setPrevDocsStack] = useState([]);
+  const [firstVisibleDoc, setFirstVisibleDoc] = useState(null);
+  const [firstDocStack, setFirstDocStack] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [nuevoCliente, setNuevoCliente] = useState({
     perro_nombre: "",
@@ -37,14 +41,14 @@ const GestionClientesScreen = () => {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [clientPhotoFile, setClientPhotoFile] = useState(null);
 
-  const cargarClientes = async (direction = "next") => {
+  const cargarClientes = async (direction = "reset") => {
     setLoading(true);
     setMensaje("");
 
     try {
       const clientesRef = collection(db, "clients");
       const filtroLower = filtro.toLowerCase().trim();
-      let baseQuery;
+      let baseQuery = query(clientesRef, orderBy("perro_nombre"));
 
       if (filtroLower) {
         baseQuery = query(
@@ -53,35 +57,52 @@ const GestionClientesScreen = () => {
           startAt(filtroLower),
           endAt(filtroLower + "\uf8ff")
         );
-      } else {
-        baseQuery = query(clientesRef, orderBy("perro_nombre"));
       }
 
       let finalQuery;
       if (direction === "next" && lastVisibleDoc) {
-        finalQuery = query(baseQuery, startAfter(lastVisibleDoc));
-      } else if (direction === "prev" && prevDocsStack.length > 1) {
-        const prev = prevDocsStack[prevDocsStack.length - 2];
-        finalQuery = query(baseQuery, startAfter(prev));
-        setPrevDocsStack((prev) => prev.slice(0, -1));
+        // Página siguiente
+        finalQuery = query(
+          baseQuery,
+          startAfter(lastVisibleDoc),
+          limit(CLIENTES_POR_PAGINA)
+        );
+      } else if (direction === "prev" && firstVisibleDoc) {
+        // Página anterior: usar endBefore + limitToLast
+        finalQuery = query(
+          baseQuery,
+          endBefore(firstVisibleDoc),
+          limitToLast(CLIENTES_POR_PAGINA)
+        );
       } else {
-        finalQuery = query(baseQuery);
-        setPrevDocsStack([]);
+        // Reset / primera página
+        finalQuery = query(baseQuery, limit(CLIENTES_POR_PAGINA));
       }
 
       const snapshot = await getDocs(finalQuery);
+      const docs = snapshot.docs;
 
-      const resultados = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      if (direction === "next" && snapshot.docs.length > 0) {
-        setPrevDocsStack((prev) => [...prev, snapshot.docs[0]]);
-      }
+      const resultados = docs.map((d) => ({ id: d.id, ...d.data() }));
 
       setClientes(resultados);
-      setLastVisibleDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      const firstDoc = docs[0] ?? null;
+      const lastDoc = docs[docs.length - 1] ?? null;
+      setFirstVisibleDoc(firstDoc);
+      setLastVisibleDoc(lastDoc);
+
+      // Mantén la pila para volver atrás
+      if (direction === "next") {
+        // Empuja el "first" de la nueva página
+        if (firstDoc) setFirstDocStack((prev) => [...prev, firstDoc]);
+      } else if (direction === "prev") {
+        // Volver atrás: saca el tope actual (el que acabamos de dejar)
+        setFirstDocStack((prev) =>
+          prev.length > 1 ? prev.slice(0, -1) : prev
+        );
+      } else {
+        // Reset de filtros/búsqueda: reinicia pila con el first actual
+        setFirstDocStack(firstDoc ? [firstDoc] : []);
+      }
     } catch (error) {
       console.error("Error al cargar clientes:", error);
       setMensaje("Error al cargar los clientes.");
@@ -91,7 +112,7 @@ const GestionClientesScreen = () => {
   };
 
   useEffect(() => {
-    cargarClientes();
+    cargarClientes("reset");
   }, []);
 
   const handleFiltroChange = (e) => {
@@ -101,8 +122,9 @@ const GestionClientesScreen = () => {
   const handleBuscar = (e) => {
     e.preventDefault();
     setLastVisibleDoc(null);
-    setPrevDocsStack([]);
-    cargarClientes();
+    setFirstVisibleDoc(null);
+    setFirstDocStack([]);
+    cargarClientes("reset");
   };
 
   const handleInputChange = (e) => {
@@ -379,14 +401,14 @@ const GestionClientesScreen = () => {
       <div className="flex justify-between items-center mt-6">
         <button
           onClick={() => cargarClientes("prev")}
-          disabled={prevDocsStack.length <= 1}
+          disabled={firstDocStack.length <= 1}
           className="px-3 py-1 bg-gray-300 rounded disabled:opacity-50"
         >
           Anterior
         </button>
         <button
           onClick={() => cargarClientes("next")}
-          disabled={!lastVisibleDoc}
+          disabled={!lastVisibleDoc || clientes.length < CLIENTES_POR_PAGINA}
           className="px-3 py-1 bg-gray-300 rounded"
         >
           Siguiente
