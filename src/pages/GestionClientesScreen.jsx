@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   collection,
   query,
@@ -19,6 +19,8 @@ import { db } from "../firebase/config";
 const CLIENTES_POR_PAGINA = 10;
 
 const GestionClientesScreen = () => {
+  const formRef = useRef(null);
+  const firstInputRef = useRef(null);
   const [clientes, setClientes] = useState([]);
   const [filtro, setFiltro] = useState("");
   const [loading, setLoading] = useState(false);
@@ -212,6 +214,13 @@ const GestionClientesScreen = () => {
     setSelectedClient(cliente);
     setNuevoCliente(cliente);
     setPhotoPreview(cliente.foto_url);
+
+    if (formRef.current) {
+      formRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    setTimeout(() => {
+      if (firstInputRef.current) firstInputRef.current.focus();
+    }, 250);
   };
 
   const handleCancelarEdicion = () => {
@@ -258,13 +267,14 @@ const GestionClientesScreen = () => {
         </button>
       </form>
 
-      <div className="bg-white p-4 rounded shadow mb-6">
+      <div ref={formRef} className="bg-white p-4 rounded shadow mb-6">
         <h2 className="text-lg font-semibold mb-2">
           {selectedClient ? "Editar Cliente" : "Nuevo Cliente"}
         </h2>
 
         <div className="space-y-2">
           <input
+            ref={firstInputRef}
             type="text"
             name="perro_nombre"
             placeholder="Nombre del perro"
