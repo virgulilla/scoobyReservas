@@ -66,19 +66,20 @@ const MorososScreen = () => {
     }
     setSearchLoading(true);
     try {
-      // Comentario: buscamos por perro_nombre como prefijo (case-insensitive si guardas en minúsculas)
-      const q = query(
+      const resultsMap = new Map();
+
+      // --- Query 1: por perro_nombre ---
+      const q1 = query(
         collection(db, "clients"),
         orderBy("perro_nombre"),
         startAt(t),
         endAt(t + "\uf8ff"),
         limit(20)
       );
-      const snap = await getDocs(q);
-      const results = [];
-      snap.forEach((d) => {
+      const snap1 = await getDocs(q1);
+      snap1.forEach((d) => {
         const data = d.data();
-        results.push({
+        resultsMap.set(d.id, {
           id: d.id,
           perro_nombre: data.perro_nombre || "",
           dueño_nombre: data["dueño_nombre"] || "",
@@ -87,8 +88,31 @@ const MorososScreen = () => {
         });
       });
 
-      // Comentario: filtro adicional por dueño/telefono en cliente (en cliente, no en Firestore)
-      const refined = results.filter((c) => {
+      // --- Query 2: por telefono ---
+      const q2 = query(
+        collection(db, "clients"),
+        orderBy("telefono"),
+        startAt(term.trim()), // no pasamos a minúsculas
+        endAt(term.trim() + "\uf8ff"),
+        limit(20)
+      );
+      const snap2 = await getDocs(q2);
+      snap2.forEach((d) => {
+        const data = d.data();
+        resultsMap.set(d.id, {
+          id: d.id,
+          perro_nombre: data.perro_nombre || "",
+          dueño_nombre: data["dueño_nombre"] || "",
+          telefono: data.telefono || "",
+          foto_url: data.foto_url || "",
+        });
+      });
+
+      // --- Convertir a array ---
+      let combinedResults = Array.from(resultsMap.values());
+
+      // --- Filtro adicional por nombre del dueño (en cliente) ---
+      combinedResults = combinedResults.filter((c) => {
         const dog = String(c.perro_nombre || "").toLowerCase();
         const owner = String(c["dueño_nombre"] || "").toLowerCase();
         const phone = String(c.telefono || "");
@@ -97,8 +121,8 @@ const MorososScreen = () => {
         );
       });
 
-      // Comentario: ordenar alfabéticamente por perro_nombre para consistencia
-      refined.sort((a, b) =>
+      // --- Ordenar por perro_nombre ---
+      combinedResults.sort((a, b) =>
         String(a.perro_nombre || "")
           .toLowerCase()
           .localeCompare(String(b.perro_nombre || "").toLowerCase(), "es", {
@@ -106,7 +130,7 @@ const MorososScreen = () => {
           })
       );
 
-      setSearchResults(refined);
+      setSearchResults(combinedResults);
     } catch (e) {
       console.error("Error searching clients:", e);
       setSearchResults([]);

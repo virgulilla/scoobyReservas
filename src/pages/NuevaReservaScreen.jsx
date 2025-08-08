@@ -280,19 +280,20 @@ const NuevaReservaScreen = () => {
     }
     setSearchLoading(true);
     try {
-      // Comentario: prefijo por perro_nombre
-      const q = query(
+      const resultsMap = new Map();
+
+      // --- Query 1: por perro_nombre ---
+      const q1 = query(
         collection(db, "clients"),
         orderBy("perro_nombre"),
         startAt(t),
         endAt(t + "\uf8ff"),
         limit(20)
       );
-      const snap = await getDocs(q);
-      const results = [];
-      snap.forEach((d) => {
+      const snap1 = await getDocs(q1);
+      snap1.forEach((d) => {
         const data = d.data();
-        results.push({
+        resultsMap.set(d.id, {
           id: d.id,
           perro_nombre: data.perro_nombre || "",
           dueño_nombre: data["dueño_nombre"] || "",
@@ -306,8 +307,33 @@ const NuevaReservaScreen = () => {
         });
       });
 
-      // Comentario: filtro adicional por dueño/telefono en cliente (lado cliente)
-      const refined = results.filter((c) => {
+      // --- Query 2: por telefono ---
+      const q2 = query(
+        collection(db, "clients"),
+        orderBy("telefono"),
+        startAt(term.trim()), // aquí sin toLowerCase porque es número
+        endAt(term.trim() + "\uf8ff"),
+        limit(20)
+      );
+      const snap2 = await getDocs(q2);
+      snap2.forEach((d) => {
+        const data = d.data();
+        resultsMap.set(d.id, {
+          id: d.id,
+          perro_nombre: data.perro_nombre || "",
+          dueño_nombre: data["dueño_nombre"] || "",
+          telefono: data.telefono || "",
+          foto_url: data.foto_url || "",
+          observaciones: data.observaciones || "",
+          patio: !!data.patio,
+          fugista: !!data.fugista,
+          miedoso: !!data.miedoso,
+          microxip: data.microxip || "",
+        });
+      });
+
+      // Convertimos Map a array y filtramos por nombre del dueño si aplica
+      let combinedResults = Array.from(resultsMap.values()).filter((c) => {
         const dog = String(c.perro_nombre || "").toLowerCase();
         const owner = String(c["dueño_nombre"] || "").toLowerCase();
         const phone = String(c.telefono || "");
@@ -316,8 +342,8 @@ const NuevaReservaScreen = () => {
         );
       });
 
-      // Comentario: ordenar por perro_nombre para consistencia
-      refined.sort((a, b) =>
+      // Orden por perro_nombre
+      combinedResults.sort((a, b) =>
         String(a.perro_nombre || "")
           .toLowerCase()
           .localeCompare(String(b.perro_nombre || "").toLowerCase(), "es", {
@@ -325,7 +351,7 @@ const NuevaReservaScreen = () => {
           })
       );
 
-      setSearchResults(refined);
+      setSearchResults(combinedResults);
     } catch (e) {
       console.error("Error searching clients:", e);
       setSearchResults([]);
