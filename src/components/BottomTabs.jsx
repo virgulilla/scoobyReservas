@@ -1,3 +1,4 @@
+// Comentario: Botonera inferior con tab adicional "Mapa" (solo admin)
 import React from "react";
 import { NavLink } from "react-router-dom";
 
@@ -8,7 +9,7 @@ const BottomTabs = ({ isAdmin }) => {
 
   return (
     <nav className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-lg">
-      {/* Contenedor con scroll horizontal */}
+      {/* Comentario: contenedor con scroll horizontal */}
       <div className="flex overflow-x-auto flex-nowrap">
         <NavLink
           to="/"
@@ -37,9 +38,18 @@ const BottomTabs = ({ isAdmin }) => {
           🍗 <span className="text-xs">Comidas</span>
         </NavLink>
 
-        {/* Tabs solo para administradores */}
+        {/* Comentario: tabs solo para administradores */}
         {isAdmin && (
           <>
+            <NavLink
+              to="/mapa"
+              className={({ isActive }) =>
+                `${baseClasses} ${isActive ? activeClasses : ""}`
+              }
+            >
+              🗺️ <span className="text-xs">Mapa</span>
+            </NavLink>
+
             <NavLink
               to="/reportes"
               className={({ isActive }) =>
@@ -48,6 +58,7 @@ const BottomTabs = ({ isAdmin }) => {
             >
               📈 <span className="text-xs">Reportes</span>
             </NavLink>
+
             <NavLink
               to="/gestion-clientes"
               className={({ isActive }) =>
