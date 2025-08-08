@@ -30,19 +30,23 @@ const ComidasScreen = () => {
 
     const querySnapshot = await getDocs(bookingsQuery);
     const pernoctando = [];
+    const bookings = querySnapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      // Comentario: ordenar en cliente por perro_nombre alfabéticamente (case-insensitive)
+      .sort((a, b) => {
+        const nombreA = (a.perro_nombre || "").toLowerCase();
+        const nombreB = (b.perro_nombre || "").toLowerCase();
+        return nombreA.localeCompare(nombreB, "es", { sensitivity: "base" });
+      });
 
-    querySnapshot.forEach((doc) => {
-      const bookingData = { id: doc.id, ...doc.data() };
+    bookings.forEach((bookingData) => {
+      // Omitir canceladas
+      if (bookingData.is_cancelada) return;
 
-      // Omitir las reservas que han sido canceladas
-      if (bookingData.is_cancelada) {
-        return;
-      }
-
-      // Filtrar para mostrar solo los perros que aún están pernoctando
+      // Solo perros que siguen durmiendo después de dateString
       if (bookingData.fecha_salida > dateString) {
         pernoctando.push({
-          id: doc.id,
+          id: bookingData.id,
           nombre: bookingData.perro_nombre,
           haComido: bookingData.ha_comido || false,
         });
