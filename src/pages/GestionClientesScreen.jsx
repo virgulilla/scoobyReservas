@@ -1,8 +1,10 @@
+// Comentario: Gestión de clientes con panel de Historial (JS puro)
 import React, { useEffect, useState, useRef } from "react";
 import {
   collection,
   query,
   orderBy,
+  where, // Comentario: necesario para historial por id_cliente
   startAt,
   endAt,
   startAfter,
@@ -17,17 +19,25 @@ import {
 import { db } from "../firebase/config";
 
 const CLIENTES_POR_PAGINA = 10;
+const HISTORIAL_POR_PAGINA = 10;
 
 const GestionClientesScreen = () => {
+  // Comentario: refs para scroll/enfoque del formulario
   const formRef = useRef(null);
   const firstInputRef = useRef(null);
+
+  // Comentario: estado principal
   const [clientes, setClientes] = useState([]);
   const [filtro, setFiltro] = useState("");
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState("");
+
+  // Comentario: paginación de clientes
   const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
   const [firstVisibleDoc, setFirstVisibleDoc] = useState(null);
   const [firstDocStack, setFirstDocStack] = useState([]);
+
+  // Comentario: edición/creación
   const [selectedClient, setSelectedClient] = useState(null);
   const [nuevoCliente, setNuevoCliente] = useState({
     perro_nombre: "",
@@ -43,6 +53,19 @@ const GestionClientesScreen = () => {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [clientPhotoFile, setClientPhotoFile] = useState(null);
 
+  // ------------------------------------------------------------
+  // Comentario: estado del panel de historial
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyClient, setHistoryClient] = useState(null);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyIncludeCanceled, setHistoryIncludeCanceled] = useState(false);
+  const [historyLastDoc, setHistoryLastDoc] = useState(null);
+  const [historyFirstDoc, setHistoryFirstDoc] = useState(null);
+  const [historyStack, setHistoryStack] = useState([]);
+  // ------------------------------------------------------------
+
+  // Comentario: carga/paginación de clientes
   const cargarClientes = async (direction = "reset") => {
     setLoading(true);
     setMensaje("");
@@ -63,21 +86,18 @@ const GestionClientesScreen = () => {
 
       let finalQuery;
       if (direction === "next" && lastVisibleDoc) {
-        // Página siguiente
         finalQuery = query(
           baseQuery,
           startAfter(lastVisibleDoc),
           limit(CLIENTES_POR_PAGINA)
         );
       } else if (direction === "prev" && firstVisibleDoc) {
-        // Página anterior: usar endBefore + limitToLast
         finalQuery = query(
           baseQuery,
           endBefore(firstVisibleDoc),
           limitToLast(CLIENTES_POR_PAGINA)
         );
       } else {
-        // Reset / primera página
         finalQuery = query(baseQuery, limit(CLIENTES_POR_PAGINA));
       }
 
@@ -92,17 +112,13 @@ const GestionClientesScreen = () => {
       setFirstVisibleDoc(firstDoc);
       setLastVisibleDoc(lastDoc);
 
-      // Mantén la pila para volver atrás
       if (direction === "next") {
-        // Empuja el "first" de la nueva página
         if (firstDoc) setFirstDocStack((prev) => [...prev, firstDoc]);
       } else if (direction === "prev") {
-        // Volver atrás: saca el tope actual (el que acabamos de dejar)
         setFirstDocStack((prev) =>
           prev.length > 1 ? prev.slice(0, -1) : prev
         );
       } else {
-        // Reset de filtros/búsqueda: reinicia pila con el first actual
         setFirstDocStack(firstDoc ? [firstDoc] : []);
       }
     } catch (error) {
@@ -117,10 +133,8 @@ const GestionClientesScreen = () => {
     cargarClientes("reset");
   }, []);
 
-  const handleFiltroChange = (e) => {
-    setFiltro(e.target.value);
-  };
-
+  // Comentario: búsqueda
+  const handleFiltroChange = (e) => setFiltro(e.target.value);
   const handleBuscar = (e) => {
     e.preventDefault();
     setLastVisibleDoc(null);
@@ -129,6 +143,7 @@ const GestionClientesScreen = () => {
     cargarClientes("reset");
   };
 
+  // Comentario: formulario
   const handleInputChange = (e) => {
     const { name, type, value, checked } = e.target;
     setNuevoCliente((prev) => ({
@@ -146,6 +161,7 @@ const GestionClientesScreen = () => {
   };
 
   const uploadPhotoToCloudinary = async (file) => {
+    // Comentario: subir imagen a Cloudinary
     const cloudName = "denlgwyus";
     const uploadPreset = "mis-mascotas";
 
@@ -155,10 +171,7 @@ const GestionClientesScreen = () => {
 
     const res = await fetch(
       `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-      {
-        method: "POST",
-        body: formData,
-      }
+      { method: "POST", body: formData }
     );
     const data = await res.json();
     return data.secure_url;
@@ -174,7 +187,8 @@ const GestionClientesScreen = () => {
 
       const data = {
         ...nuevoCliente,
-        perro_nombre: nuevoCliente.perro_nombre.toLowerCase(),
+        // Comentario: normalizar nombre para ordenación/búsqueda por prefijo
+        perro_nombre: (nuevoCliente.perro_nombre || "").toLowerCase(),
         foto_url: photoURL,
       };
 
@@ -240,6 +254,85 @@ const GestionClientesScreen = () => {
     setPhotoPreview(null);
   };
 
+  // ------------------------------------------------------------
+  // Comentario: Historial — abrir/cerrar y cargar con paginación
+  const handleVerHistorial = (cliente) => {
+    setHistoryClient(cliente);
+    setHistoryIncludeCanceled(false);
+    setHistoryOpen(true);
+    setHistoryItems([]);
+    setHistoryFirstDoc(null);
+    setHistoryLastDoc(null);
+    setHistoryStack([]);
+    cargarHistorial(cliente, "reset");
+  };
+
+  const handleCerrarHistorial = () => {
+    setHistoryOpen(false);
+    setHistoryClient(null);
+    setHistoryItems([]);
+  };
+
+  const cargarHistorial = async (cliente, direction = "reset") => {
+    if (!cliente?.id) return;
+    setHistoryLoading(true);
+    try {
+      const reservasRef = collection(db, "reservations");
+
+      // Comentario: historial por cliente, ordenado por fecha_entrada DESC
+      let baseQuery = query(
+        reservasRef,
+        where("id_cliente", "==", cliente.id),
+        orderBy("fecha_entrada", "desc")
+      );
+
+      let finalQuery;
+      if (direction === "next" && historyLastDoc) {
+        finalQuery = query(
+          baseQuery,
+          startAfter(historyLastDoc),
+          limit(HISTORIAL_POR_PAGINA)
+        );
+      } else if (direction === "prev" && historyFirstDoc) {
+        finalQuery = query(
+          baseQuery,
+          endBefore(historyFirstDoc),
+          limitToLast(HISTORIAL_POR_PAGINA)
+        );
+      } else {
+        finalQuery = query(baseQuery, limit(HISTORIAL_POR_PAGINA));
+      }
+
+      const snap = await getDocs(finalQuery);
+      console.log(snap);
+      let items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Comentario: filtrar canceladas si el toggle está OFF
+      if (!historyIncludeCanceled) {
+        items = items.filter((x) => !x.is_cancelada);
+      }
+
+      setHistoryItems(items);
+
+      const first = snap.docs[0] ?? null;
+      const last = snap.docs[snap.docs.length - 1] ?? null;
+      setHistoryFirstDoc(first);
+      setHistoryLastDoc(last);
+
+      if (direction === "next") {
+        if (first) setHistoryStack((prev) => [...prev, first]);
+      } else if (direction === "prev") {
+        setHistoryStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+      } else {
+        setHistoryStack(first ? [first] : []);
+      }
+    } catch (e) {
+      console.error("Error al cargar historial:", e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+  // ------------------------------------------------------------
   return (
     <div className="p-4 pb-24 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Gestión de Clientes</h1>
@@ -398,12 +491,21 @@ const GestionClientesScreen = () => {
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => handleEditar(cliente)}
-              className="bg-violet-600 text-white px-3 py-1 rounded text-sm"
-            >
-              Editar
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleVerHistorial(cliente)}
+                className="bg-amber-600 text-white px-3 py-1 rounded text-sm"
+              >
+                Historial
+              </button>
+              <button
+                onClick={() => handleEditar(cliente)}
+                className="bg-violet-600 text-white px-3 py-1 rounded text-sm"
+              >
+                Editar
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -424,6 +526,121 @@ const GestionClientesScreen = () => {
           Siguiente
         </button>
       </div>
+
+      {/* -------------------------------------------------------- */}
+      {/* Comentario: Drawer de Historial */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div
+            className="flex-1 bg-black/40"
+            onClick={handleCerrarHistorial}
+            aria-hidden
+          />
+          <div className="w-full max-w-md bg-white h-full shadow-xl p-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">
+                Historial · {historyClient?.perro_nombre}
+              </h3>
+              <button
+                onClick={handleCerrarHistorial}
+                className="text-gray-600 hover:text-gray-900"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={historyIncludeCanceled}
+                  onChange={(e) => {
+                    setHistoryIncludeCanceled(e.target.checked);
+                    // Comentario: recargar desde el inicio al cambiar el filtro
+                    if (historyClient) cargarHistorial(historyClient, "reset");
+                  }}
+                />
+                Incluir canceladas
+              </label>
+            </div>
+
+            {historyLoading ? (
+              <p className="text-sm text-gray-500">Cargando...</p>
+            ) : historyItems.length === 0 ? (
+              <p className="text-sm text-gray-500">Sin registros.</p>
+            ) : (
+              <ul className="space-y-2">
+                {historyItems.map((r) => {
+                  const esCancelada = r.is_cancelada === true;
+                  return (
+                    <li
+                      key={r.id}
+                      className={`p-3 rounded border ${
+                        esCancelada
+                          ? "bg-red-50 border-red-200"
+                          : "bg-gray-50 border-gray-200"
+                      }`}
+                    >
+                      <div className="flex justify-between">
+                        <div>
+                          <p className="font-medium">
+                            {r.fecha_entrada} → {r.fecha_salida}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {r.num_perros || 1} perro(s)
+                            {r.telefono ? ` · ${r.telefono}` : ""}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          {esCancelada && (
+                            <span className="inline-block text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 border border-red-300">
+                              Cancelada
+                            </span>
+                          )}
+                          {!esCancelada && r.total_pago != null && (
+                            <p className="text-sm font-semibold">
+                              {r.total_pago} €
+                            </p>
+                          )}
+                          <a
+                            href={`/editar-reserva/${r.id}`}
+                            className="mt-2 inline-block text-xs text-indigo-700 hover:underline"
+                          >
+                            Ver/Editar
+                          </a>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <div className="flex justify-between items-center mt-4">
+              <button
+                onClick={() => cargarHistorial(historyClient, "prev")}
+                disabled={historyStack.length <= 1 || historyLoading}
+                className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => cargarHistorial(historyClient, "next")}
+                disabled={
+                  !historyLastDoc ||
+                  historyItems.length < HISTORIAL_POR_PAGINA ||
+                  historyLoading
+                }
+                className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* -------------------------------------------------------- */}
     </div>
   );
 };
