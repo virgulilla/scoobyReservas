@@ -10,9 +10,11 @@ import {
   getDocs,
   doc,
   getDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
+import SwipeItem from "../components/SwipeItem";
 
 const CalendarioScreen = () => {
   // Comentario: estado de la fecha seleccionada
@@ -152,19 +154,22 @@ const CalendarioScreen = () => {
     navigate(`/editar-reserva/${bookingId}`);
   };
 
+  const toggleCheck = async (bookingId, field, current) => {
+    try {
+      await updateDoc(doc(db, "reservations", bookingId), {
+        [field]: !current,
+      });
+      setBookings((prev) =>
+        prev.map((b) => (b.id === bookingId ? { ...b, [field]: !current } : b))
+      );
+    } catch (e) {
+      console.error("Error al actualizar estado:", e);
+    }
+  };
+
   if (userRole === null) {
     return <div className="p-4 text-center">Cargando...</div>;
   }
-
-  const isDisabled = userRole !== "admin";
-  const cardClasses = (isEntrada, isSalida) =>
-    `p-3 rounded-lg shadow-sm transition-colors duration-200 ${
-      isEntrada
-        ? "bg-green-100 border-l-4 border-green-500"
-        : isSalida
-        ? "bg-red-100 border-l-4 border-red-500"
-        : "bg-white"
-    } ${!isDisabled ? "cursor-pointer" : "cursor-default"}`;
 
   return (
     <div className="p-4 pb-16 bg-gray-100 min-h-screen">
@@ -195,6 +200,7 @@ const CalendarioScreen = () => {
       <div className="space-y-3">
         {bookings.length > 0 ? (
           bookings.map((booking) => {
+            // 🗓️ yyyy-mm-dd del día seleccionado
             const year = selectedDate.getFullYear();
             const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
             const day = String(selectedDate.getDate()).padStart(2, "0");
@@ -202,16 +208,42 @@ const CalendarioScreen = () => {
 
             const isEntrada = booking.fecha_entrada === dateString;
             const isSalida = booking.fecha_salida === dateString;
-            const pagoAnticipado = booking.pago_anticipado || 0;
-            const pendientePagar = (booking.total_pago || 0) - pagoAnticipado;
-            const isPatio =
-              booking.id_cliente && patioClientIds.includes(booking.id_cliente);
 
-            return (
+            // 🏷️ Campo objetivo según el contexto del día
+            const field = isEntrada
+              ? "checked_in"
+              : isSalida
+              ? "checked_out"
+              : null;
+            const isDone = isEntrada
+              ? !!booking.checked_in
+              : isSalida
+              ? !!booking.checked_out
+              : false;
+
+            // 🎨 Estilos según tipo y estado
+            const bgBase = isEntrada
+              ? "bg-green-100 border-l-4 border-green-500"
+              : isSalida
+              ? "bg-red-100 border-l-4 border-red-500"
+              : "bg-white";
+
+            const bgDone = isEntrada
+              ? "bg-green-200"
+              : isSalida
+              ? "bg-red-200"
+              : "bg-white";
+
+            const cardCls = `p-3 rounded-lg shadow-sm transition-colors duration-200 ${
+              isDone ? bgDone : bgBase
+            } ${userRole === "admin" ? "cursor-pointer" : "cursor-default"}`;
+
+            const content = (
               <div
-                key={booking.id}
-                className={cardClasses(isEntrada, isSalida)}
-                onClick={() => !isDisabled && handleBookingClick(booking.id)}
+                className={cardCls}
+                onClick={() =>
+                  userRole === "admin" && handleBookingClick(booking.id)
+                }
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -221,15 +253,41 @@ const CalendarioScreen = () => {
                     <p className="text-sm text-gray-700 mt-1">
                       Teléfono: {booking.telefono}
                     </p>
-                    {isPatio && (
-                      <span
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300"
-                        title="Cliente con acceso a patio"
-                        aria-label="Cliente con acceso a patio"
-                      >
-                        Patio
-                      </span>
-                    )}
+
+                    {/* 🪧 Badges */}
+                    <div className="mt-1 flex gap-2">
+                      {isEntrada && (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border
+                    ${
+                      isDone
+                        ? "bg-green-600 text-white border-green-700"
+                        : "bg-green-100 text-green-800 border-green-300"
+                    }`}
+                        >
+                          {isDone ? "Llegó" : "Pendiente llegada"}
+                        </span>
+                      )}
+                      {isSalida && (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border
+                    ${
+                      isDone
+                        ? "bg-red-600 text-white border-red-700"
+                        : "bg-red-100 text-red-800 border-red-300"
+                    }`}
+                        >
+                          {isDone ? "Salió" : "Pendiente salida"}
+                        </span>
+                      )}
+                      {/* Patio */}
+                      {booking.id_cliente &&
+                        patioClientIds.includes(booking.id_cliente) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                            Patio
+                          </span>
+                        )}
+                    </div>
                   </div>
 
                   {isSalida && (
@@ -237,9 +295,14 @@ const CalendarioScreen = () => {
                       <p className="text-lg font-bold text-red-600">
                         Total: {booking.total_pago} €
                       </p>
-                      {pendientePagar > 0 ? (
+                      {(booking.total_pago || 0) -
+                        (booking.pago_anticipado || 0) >
+                      0 ? (
                         <p className="text-sm text-red-500">
-                          Pendiente: {pendientePagar} €
+                          Pendiente:{" "}
+                          {(booking.total_pago || 0) -
+                            (booking.pago_anticipado || 0)}{" "}
+                          €
                         </p>
                       ) : (
                         <p className="text-sm text-green-500">Total pagado</p>
@@ -248,6 +311,26 @@ const CalendarioScreen = () => {
                   )}
                 </div>
               </div>
+            );
+
+            // 🚫 Si no es entrada ni salida hoy → no swipable
+            if (!isEntrada && !isSalida) {
+              return <div key={booking.id}>{content}</div>;
+            }
+
+            // ✅ Swipe derecha para confirmar (toggle) llegada/salida
+            return (
+              <SwipeItem
+                key={booking.id}
+                onConfirm={() =>
+                  field && toggleCheck(booking.id, field, isDone)
+                }
+                threshold={96}
+                completed={isDone}
+                className=""
+              >
+                {content}
+              </SwipeItem>
             );
           })
         ) : (
