@@ -9,6 +9,7 @@ import {
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
+import SwipeItem from "../components/SwipeItem";
 
 const ComidasScreen = () => {
   const [perrosPernoctando, setPerrosPernoctando] = useState([]);
@@ -85,7 +86,7 @@ const ComidasScreen = () => {
     // Obtener las reservas que pernoctan, que están marcadas y que NO han sido canceladas
     const pernoctandoQuery = query(
       collection(db, "reservations"),
-      where("fecha_salida", ">", dateString),
+      where("fecha_salida", ">=", dateString),
       where("ha_comido", "==", true),
       where("is_cancelada", "==", false) // Nueva condición para excluir canceladas
     );
@@ -114,6 +115,11 @@ const ComidasScreen = () => {
     return <div className="p-4 text-center">Cargando perros...</div>;
   }
 
+  const pendientes = perrosPernoctando.reduce(
+    (acc, p) => acc + (p.haComido ? 0 : 1),
+    0
+  );
+
   return (
     <div className="p-4 pb-16 bg-gray-100 min-h-screen">
       <h1 className="text-2xl font-bold mb-4 text-gray-800">
@@ -121,42 +127,60 @@ const ComidasScreen = () => {
       </h1>
 
       {perrosPernoctando.length > 0 && (
-        <button
-          onClick={uncheckAll}
-          className="bg-red-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 transition-colors mb-4"
-        >
-          Desmarcar todos
-        </button>
+        <div className="mb-4 flex items-center justify-between">
+          <button
+            onClick={uncheckAll}
+            className="bg-red-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 transition-colors"
+          >
+            Desmarcar todos
+          </button>
+
+          {/* 🔔 Badge con pendientes */}
+          <span
+            className={`inline-flex items-center text-sm font-semibold px-3 py-1 rounded-full
+        ${
+          pendientes > 0
+            ? "bg-amber-100 text-amber-800"
+            : "bg-emerald-100 text-emerald-800"
+        }`}
+            aria-live="polite"
+          >
+            Pendientes: {pendientes}
+          </span>
+        </div>
       )}
 
       <div className="space-y-4">
         {perrosPernoctando.length > 0 ? (
           perrosPernoctando.map((perro) => (
-            <div
-              key={perro.id}
-              className={`flex items-center justify-between p-4 rounded-lg shadow-sm bg-white cursor-pointer transition-colors ${
-                perro.haComido ? "bg-green-50" : ""
+            <SwipeItem
+              key={perro.id} // ✅ clave única por ítem
+              onConfirm={() => toggleComido(perro.id, perro.haComido)}
+              threshold={96} // 👉 un pelín más intencional
+              completed={perro.haComido}
+              className={`p-4 rounded-lg shadow-sm transition-colors ${
+                perro.haComido
+                  ? "bg-emerald-500 text-white" // ✅ fondo cuando ha comido
+                  : "bg-white text-gray-800" // ⬜️ fondo por defecto
               }`}
-              onClick={() => toggleComido(perro.id, perro.haComido)}
             >
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  checked={perro.haComido}
-                  onChange={() => toggleComido(perro.id, perro.haComido)}
-                  className="form-checkbox h-5 w-5 text-indigo-600 rounded"
-                />
+              <div className="flex items-center justify-between">
                 <p
                   className={`font-semibold text-lg ${
-                    perro.haComido
-                      ? "line-through text-gray-400"
-                      : "text-gray-800"
+                    perro.haComido ? "line-through" : ""
                   }`}
                 >
                   {perro.nombre}
                 </p>
+                <span
+                  className={`text-xs select-none ${
+                    perro.haComido ? "opacity-80" : "text-gray-400"
+                  }`}
+                >
+                  Desliza ➔
+                </span>
               </div>
-            </div>
+            </SwipeItem>
           ))
         ) : (
           <p className="text-center text-gray-500">
