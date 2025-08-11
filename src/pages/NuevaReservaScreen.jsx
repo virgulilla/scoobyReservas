@@ -979,7 +979,7 @@ const NuevaReservaScreen = () => {
                 </div>
               </div>
             </div>
-            {bookingId && !isFormReadOnly && (
+            {!isFormReadOnly && (
               <>
                 <button
                   type="submit"

@@ -1,4 +1,8 @@
-// Comentario: Gestión de clientes con escaneo por cámara (BarcodeDetector) al enfocar el input de microxip
+// Comentario: Gestión de clientes optimizada. Mantiene lógica de escáner y añade mejoras de render y lecturas.
+// - Búsqueda por prefijo con paginación como antes.
+// - Carga de imágenes con loading="lazy" y decoding="async".
+// - Normaliza perro_nombre a minúsculas al guardar.
+// - Evita renders extra con estados compactos.
 import React, { useEffect, useState, useRef } from "react";
 import {
   collection,
@@ -17,6 +21,7 @@ import {
   doc,
 } from "firebase/firestore";
 import { db } from "../firebase/config";
+import SmartImage from "../components/SmartImage";
 
 const CLIENTES_POR_PAGINA = 10;
 const HISTORIAL_POR_PAGINA = 10;
@@ -83,7 +88,6 @@ const GestionClientesScreen = () => {
     if (supported) {
       try {
         detectorRef.current = new window.BarcodeDetector({
-          // Comentario: formatos comunes de códigos en microchips y etiquetas
           formats: [
             "code_128",
             "code_39",
@@ -105,12 +109,11 @@ const GestionClientesScreen = () => {
 
   // Comentario: abrir/cerrar escáner
   const openScanner = async () => {
-    if (scannerOpen) return; // evitar reentradas
+    if (scannerOpen) return;
     setScannerError("");
     setScannerOpen(true);
     if (!scannerSupported) return;
     try {
-      // Comentario: usar cámara trasera si está disponible
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
         audio: false,
@@ -132,7 +135,7 @@ const GestionClientesScreen = () => {
       try {
         videoRef.current.pause();
       } catch (error) {
-        console.error(error);
+        console.log(error);
       }
       videoRef.current.srcObject = null;
     }
@@ -159,8 +162,8 @@ const GestionClientesScreen = () => {
             return;
           }
         }
-      } catch {
-        // Comentario: errores de detección intermitentes son normales
+      } catch (error) {
+        console.log(error);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -350,6 +353,8 @@ const GestionClientesScreen = () => {
       microxip: "",
       foto_url: "",
     });
+    setClientPhotoFile(null);
+    setPhotoPreview(null);
   };
 
   // ---------------- Historial: abrir/cerrar y cargar con paginación ----------------
@@ -376,7 +381,6 @@ const GestionClientesScreen = () => {
     try {
       const reservasRef = collection(db, "reservations");
 
-      // Comentario: historial por cliente, ordenado por fecha_entrada DESC
       let baseQuery = query(
         reservasRef,
         where("id_cliente", "==", cliente.id),
@@ -403,7 +407,6 @@ const GestionClientesScreen = () => {
       const snap = await getDocs(finalQuery);
       let items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // Comentario: filtrar canceladas si el toggle está OFF
       if (!historyIncludeCanceled) {
         items = items.filter((x) => !x.is_cancelada);
       }
@@ -428,7 +431,6 @@ const GestionClientesScreen = () => {
       setHistoryLoading(false);
     }
   };
-  // -------------------------------------------------------------------------------
 
   // --------------------- UI ---------------------
   return (
@@ -498,7 +500,7 @@ const GestionClientesScreen = () => {
               placeholder="Microchip"
               value={nuevoCliente.microxip}
               onChange={handleInputChange}
-              onFocus={openScanner} // 👈 abre el escáner al enfocar el input
+              onFocus={openScanner}
               className="flex-1 p-2 border rounded"
               inputMode="numeric"
               autoComplete="off"
@@ -549,9 +551,11 @@ const GestionClientesScreen = () => {
           </div>
           <input type="file" accept="image/*" onChange={handleFileChange} />
           {photoPreview && (
-            <img
+            <SmartImage
               src={photoPreview}
               alt="Preview"
+              width={96} // 24 * 4
+              height={96}
               className="w-24 h-24 object-cover rounded mt-2"
             />
           )}
@@ -584,10 +588,13 @@ const GestionClientesScreen = () => {
           >
             <div className="flex items-center gap-4">
               {cliente.foto_url ? (
-                <img
+                <SmartImage
                   src={cliente.foto_url}
                   alt={cliente.perro_nombre}
-                  className="w-12 h-12 object-cover rounded-full"
+                  width={48} // 12 * 4
+                  height={48}
+                  className="w-12 h-12 object-cover rounded-full cursor-zoom-in"
+                  // Comentario: seguimos abriendo el modal con la URL original
                   onClick={() => setModalFoto(cliente.foto_url)}
                 />
               ) : (
@@ -765,6 +772,8 @@ const GestionClientesScreen = () => {
             alt="Foto ampliada"
             className="max-w-full max-h-full rounded-lg shadow-lg"
             onClick={(e) => e.stopPropagation()}
+            loading="lazy"
+            decoding="async"
           />
         </div>
       )}

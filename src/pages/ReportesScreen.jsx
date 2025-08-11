@@ -1,6 +1,10 @@
+// Comentario: Reportes optimizado. Reduce lecturas filtrando por año en Firestore:
+// - where("fecha_salida", ">=", `${year}-01-01`) y <= `${year}-12-31` + orderBy("fecha_salida")
+// - Evita procesar reservas de otros años en cliente.
+// - Gráfico destruido/recreado como antes.
 import React, { useState, useEffect, useRef } from "react";
 import { db } from "../firebase/config";
-import { collection, query, getDocs } from "firebase/firestore";
+import { collection, query, getDocs, where, orderBy } from "firebase/firestore";
 import Chart from "chart.js/auto";
 
 const ReportsScreen = () => {
@@ -26,7 +30,17 @@ const ReportsScreen = () => {
   ];
 
   const fetchRevenue = async (selectedYear) => {
-    const bookingsQuery = query(collection(db, "reservations"));
+    const start = `${selectedYear}-01-01`;
+    const end = `${selectedYear}-12-31`;
+
+    // Comentario: filtrar por rango de fecha_salida y ordenar para índice compuesto
+    const bookingsQuery = query(
+      collection(db, "reservations"),
+      where("fecha_salida", ">=", start),
+      where("fecha_salida", "<=", end),
+      orderBy("fecha_salida")
+    );
+
     const querySnapshot = await getDocs(bookingsQuery);
 
     const revenueByMonth = Array(12).fill(0);
@@ -34,18 +48,12 @@ const ReportsScreen = () => {
 
     querySnapshot.forEach((doc) => {
       const booking = doc.data();
-
-      // No tener en cuenta las reservas canceladas para los reportes
-      if (booking.is_cancelada) {
-        return;
-      }
-
-      const salidaDate = new Date(booking.fecha_salida);
-
-      if (salidaDate.getFullYear() === selectedYear) {
-        const month = salidaDate.getMonth();
-        const totalPago = booking.total_pago || 0;
-        revenueByMonth[month] += totalPago;
+      if (booking.is_cancelada) return;
+      const salida = booking.fecha_salida; // Comentario: "YYYY-MM-DD"
+      const monthIdx = parseInt(salida.slice(5, 7), 10) - 1; // Comentario: 0..11
+      const totalPago = booking.total_pago || 0;
+      if (monthIdx >= 0 && monthIdx < 12) {
+        revenueByMonth[monthIdx] += totalPago;
         totalAnnualRevenue += totalPago;
       }
     });
@@ -59,10 +67,7 @@ const ReportsScreen = () => {
   }, [year]);
 
   useEffect(() => {
-    // Destruir la instancia del gráfico si ya existe
-    if (chartInstance.current) {
-      chartInstance.current.destroy();
-    }
+    if (chartInstance.current) chartInstance.current.destroy();
 
     if (chartRef.current) {
       const ctx = chartRef.current.getContext("2d");
@@ -86,10 +91,7 @@ const ReportsScreen = () => {
           scales: {
             y: {
               beginAtZero: true,
-              title: {
-                display: true,
-                text: "Ingresos (€)",
-              },
+              title: { display: true, text: "Ingresos (€)" },
             },
           },
         },
@@ -97,9 +99,7 @@ const ReportsScreen = () => {
     }
   }, [monthlyRevenue, year]);
 
-  const handleYearChange = (event) => {
-    setYear(Number(event.target.value));
-  };
+  const handleYearChange = (event) => setYear(Number(event.target.value));
 
   return (
     <div className="p-4 pb-16 bg-gray-100 min-h-screen">
@@ -107,7 +107,6 @@ const ReportsScreen = () => {
         Reportes Financieros
       </h1>
 
-      {/* Selector de Año */}
       <div className="flex items-center space-x-2 mb-6">
         <label htmlFor="year-select" className="text-gray-700 font-semibold">
           Seleccionar Año:
@@ -129,7 +128,6 @@ const ReportsScreen = () => {
         </select>
       </div>
 
-      {/* Resumen Anual */}
       <div className="bg-white p-6 rounded-lg shadow-md mb-6">
         <h2 className="text-xl font-semibold mb-2 text-gray-800">
           Resumen del Año {year}
@@ -142,7 +140,6 @@ const ReportsScreen = () => {
         </div>
       </div>
 
-      {/* Gráfico de Ingresos Mensuales */}
       <div className="bg-white p-6 rounded-lg shadow-md mb-6">
         <h2 className="text-xl font-semibold mb-4 text-gray-800">
           Ingresos Mensuales
@@ -152,7 +149,6 @@ const ReportsScreen = () => {
         </div>
       </div>
 
-      {/* Tabla de Datos Mensuales */}
       <div className="bg-white p-6 rounded-lg shadow-md">
         <h2 className="text-xl font-semibold mb-4 text-gray-800">
           Detalle Mensual

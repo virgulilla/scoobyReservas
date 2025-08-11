@@ -1,7 +1,5 @@
-// Comentario: Mapa con DnD táctil (dnd-kit), persistencia diaria (cookie + localStorage) y modal.
-// Comentario: Los perros se cargan desde Firestore y empiezan en P4 si no hay estado guardado.
-
-import React, { useEffect, useState, useCallback } from "react";
+// Comentario: Mapa con DnD táctil, persistencia diaria (cookie + localStorage), modal y caché de nombres desde "clients".
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -16,7 +14,6 @@ import { db } from "../firebase/config";
 import { collection, query, where, getDocs } from "firebase/firestore";
 
 // -------------------- util fecha --------------------
-// Comentario: clave yyyy-mm-dd para la persistencia diaria
 const todayKey = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -26,7 +23,6 @@ const todayKey = () => {
 };
 
 // -------------------- helpers cookies & storage --------------------
-// Comentario: cookie pequeña que solo guarda la clave del día; expira a las 23:59:59
 const setTodayCookieFlag = (name, value) => {
   const expires = new Date();
   expires.setHours(23, 59, 59, 999);
@@ -39,13 +35,12 @@ const getCookie = (name) => {
   return m ? decodeURIComponent(m[2]) : null;
 };
 
-// Comentario: usamos localStorage para el payload grande (sin límite 4KB)
 const STORAGE_PREFIX = "dogAssignments:";
 const saveStateToStorage = (dayKey, state) => {
   try {
     localStorage.setItem(`${STORAGE_PREFIX}${dayKey}`, JSON.stringify(state));
-  } catch (e) {
-    console.warn("No se pudo guardar en localStorage:", e);
+  } catch (error) {
+    console.error(error);
   }
 };
 const loadStateFromStorage = (dayKey) => {
@@ -57,29 +52,63 @@ const loadStateFromStorage = (dayKey) => {
   }
 };
 
+// -------------------- caché de nombres de clients --------------------
+const CLIENT_NAME_CACHE_KEY = "clientDogNamesCache:v1"; // { map:{clientId: {name, ts}}, ts }
+const NAME_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 días
+
+const loadNameCache = () => {
+  try {
+    const raw = localStorage.getItem(CLIENT_NAME_CACHE_KEY);
+    if (!raw) return { map: {}, ts: 0 };
+    const parsed = JSON.parse(raw);
+    return { map: parsed.map || {}, ts: parsed.ts || 0 };
+  } catch {
+    return { map: {}, ts: 0 };
+  }
+};
+const saveNameCache = (cache) => {
+  try {
+    localStorage.setItem(
+      CLIENT_NAME_CACHE_KEY,
+      JSON.stringify({ map: cache.map, ts: Date.now() })
+    );
+  } catch (error) {
+    console.error(error);
+  }
+};
+const upsertNamesInCache = (entries) => {
+  const cache = loadNameCache();
+  const now = Date.now();
+  for (const [id, name] of entries) {
+    cache.map[id] = { name, ts: now };
+  }
+  saveNameCache(cache);
+};
+const getFreshNameFromCache = (clientId) => {
+  const { map } = loadNameCache();
+  const rec = map[clientId];
+  if (!rec) return null;
+  if (Date.now() - (rec.ts || 0) > NAME_TTL_MS) return null;
+  return rec.name || null;
+};
+
 // -------------------- layout --------------------
-// Comentario: Grid de 12 columnas, filas altas para legibilidad
 const SPACES = [
-  // Patios
   { id: "P5", label: "P5", type: "patio", c1: 1, c2: 9, r1: 6, r2: 12 },
   { id: "P4", label: "P4", type: "patio", c1: 1, c2: 9, r1: 7, r2: 12 }, // patio grande inferior izq
   { id: "P1", label: "P1", type: "patio", c1: 9, c2: 12, r1: 7, r2: 10 },
   { id: "P2", label: "P2", type: "patio", c1: 9, c2: 12, r1: 9, r2: 11 },
   { id: "P3", label: "P3", type: "patio", c1: 9, c2: 12, r1: 10, r2: 12 },
 
-  // Bloque superior (4 filas)
-  // Fila 1
   { id: "B9", label: "B9", type: "box", c1: 2, c2: 4, r1: 1, r2: 2 },
   { id: "B10", label: "B10", type: "box", c1: 4, c2: 6, r1: 1, r2: 2 },
   { id: "B17", label: "B17", type: "box", c1: 7, c2: 9, r1: 1, r2: 2 },
   { id: "B18", label: "B18", type: "box", c1: 9, c2: 11, r1: 1, r2: 3 }, // doble alto
 
-  // Fila 2
   { id: "B8", label: "B8", type: "box", c1: 2, c2: 4, r1: 2, r2: 3 },
   { id: "B11", label: "B11", type: "box", c1: 4, c2: 6, r1: 2, r2: 3 },
   { id: "B16", label: "B16", type: "box", c1: 7, c2: 9, r1: 2, r2: 3 },
 
-  // Fila 3
   { id: "B7", label: "B7", type: "box", c1: 2, c2: 4, r1: 3, r2: 4 },
   { id: "B12", label: "B12", type: "box", c1: 4, c2: 6, r1: 3, r2: 4 },
   { id: "B15", label: "B15", type: "box", c1: 7, c2: 9, r1: 3, r2: 4 },
@@ -90,9 +119,6 @@ const SPACES = [
   { id: "B13", label: "B13", type: "box", c1: 4, c2: 6, r1: 4, r2: 5 },
   { id: "B14", label: "B14", type: "box", c1: 7, c2: 9, r1: 4, r2: 5 },
 
-  // Fila 5 en blanco
-
-  // Fila 6 (B1..B5)
   { id: "B1", label: "B1", type: "box", c1: 2, c2: 4, r1: 5, r2: 6 },
   { id: "B2", label: "B2", type: "box", c1: 4, c2: 6, r1: 5, r2: 6 },
   { id: "B3", label: "B3", type: "box", c1: 6, c2: 8, r1: 5, r2: 6 },
@@ -102,7 +128,6 @@ const SPACES = [
 
 // -------------------- componentes DnD --------------------
 const DraggableDog = ({ dog }) => {
-  // Comentario: tarjeta arrastrable con tipografía más grande
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: dog.id, data: { dog } });
 
@@ -129,7 +154,6 @@ const DraggableDog = ({ dog }) => {
 };
 
 const DroppableSpace = ({ space, children, onOpen }) => {
-  // Comentario: contenedor droppable con apertura de modal al pulsar el encabezado
   const { setNodeRef, isOver } = useDroppable({
     id: space.id,
     data: { space },
@@ -165,14 +189,11 @@ const DroppableSpace = ({ space, children, onOpen }) => {
   );
 };
 
-// -------------------- modal simple --------------------
 const SpaceModal = ({ open, onClose, title, dogs }) => {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      {/* overlay */}
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      {/* panel */}
       <div className="relative bg-white w-full sm:max-w-md sm:rounded-lg sm:shadow-lg p-4 max-h-[80vh] overflow-auto">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold">{title}</h3>
@@ -205,49 +226,108 @@ const MapaScreen = () => {
   const [assignments, setAssignments] = useState(() =>
     SPACES.reduce((acc, s) => ({ ...acc, [s.id]: [] }), {})
   );
-  const [dogToSpace, setDogToSpace] = useState({}); // Comentario: índice inverso dogId -> spaceId
+  const [dogToSpace, setDogToSpace] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [modalSpaceId, setModalSpaceId] = useState(null);
 
-  // Sensores: ratón + táctil
+  // Sensores memo (mejor que recrearlos en cada render)
   const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor));
 
-  // Carga inicial con restauración diaria
+  // util: trocear ids para where("__name__", "in", [...])
+  const chunk = useCallback(
+    (arr, size = 10) =>
+      Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
+        arr.slice(i * size, i * size + size)
+      ),
+    []
+  );
+
+  // Carga inicial con restauración diaria + nombre desde caché/clients
   useEffect(() => {
-    const dayKey = todayKey();
-    const flag = getCookie("dogAssignmentsDay");
+    const load = async () => {
+      const dayKey = todayKey();
+      const flag = getCookie("dogAssignmentsDay");
 
-    if (flag === dayKey) {
-      const saved = loadStateFromStorage(dayKey);
-      if (saved?.assignments && saved?.dogToSpace) {
-        setAssignments(saved.assignments);
-        setDogToSpace(saved.dogToSpace);
-        setLoading(false);
-        return;
+      if (flag === dayKey) {
+        const saved = loadStateFromStorage(dayKey);
+        if (saved?.assignments && saved?.dogToSpace) {
+          setAssignments(saved.assignments);
+          setDogToSpace(saved.dogToSpace);
+          setLoading(false);
+          return;
+        }
       }
-    }
 
-    // Si no hay guardado válido, cargamos de Firestore y enviamos todo a P4
-    const fetchDogs = async () => {
       setLoading(true);
       try {
+        // 1) Cargar reservas activas hoy
         const today = dayKey;
-        const q = query(
+        const qRes = query(
           collection(db, "reservations"),
           where("fecha_entrada", "<=", today)
         );
-        const snap = await getDocs(q);
-        const dogs = [];
+        const snap = await getDocs(qRes);
+
+        const dogsRaw = [];
+        const clientIdsSet = new Set();
+
         snap.forEach((d) => {
           const r = { id: d.id, ...d.data() };
           if (r.is_cancelada) return;
           if ((r.fecha_salida || "") < today) return;
-          const nombre = (r.perro_nombre || "").trim();
-          if (nombre) dogs.push({ id: d.id, name: nombre });
+
+          const cid = r.id_cliente;
+          if (cid && typeof cid === "string") clientIdsSet.add(cid);
+
+          // guardamos también el perro_nombre de la reserva como fallback
+          dogsRaw.push({
+            id: d.id,
+            perro_nombre_booking: (r.perro_nombre || "").trim(),
+            id_cliente: cid || null,
+          });
         });
+
+        // 2) Resolver nombres desde caché y pedir a Firestore los faltantes
+        const clientIds = Array.from(clientIdsSet);
+        const needFetch = [];
+        const fromCache = new Map();
+        for (const id of clientIds) {
+          const cached = getFreshNameFromCache(id);
+          if (cached) fromCache.set(id, cached);
+          else needFetch.push(id);
+        }
+
+        if (needFetch.length > 0) {
+          for (const group of chunk(needFetch, 10)) {
+            const snapClients = await getDocs(
+              query(collection(db, "clients"), where("__name__", "in", group))
+            );
+            const toUpsert = [];
+            snapClients.forEach((cDoc) => {
+              const c = cDoc.data();
+              const nombre =
+                c?.perro_nombre ?? c?.nombre_perro ?? c?.dog_name ?? "";
+              if (nombre) {
+                fromCache.set(cDoc.id, String(nombre));
+                toUpsert.push([cDoc.id, String(nombre)]);
+              }
+            });
+            if (toUpsert.length) upsertNamesInCache(toUpsert);
+          }
+        }
+
+        // 3) Construir lista de perros con prioridad: nombre de clients -> fallback reserva
+        const dogs = dogsRaw
+          .map((r) => {
+            const resolved =
+              (r.id_cliente && fromCache.get(r.id_cliente)) ||
+              r.perro_nombre_booking ||
+              "";
+            return { id: r.id, name: resolved };
+          })
+          .filter((d) => d.name);
 
         dogs.sort((a, b) =>
           a.name
@@ -255,32 +335,30 @@ const MapaScreen = () => {
             .localeCompare(b.name.toLowerCase(), "es", { sensitivity: "base" })
         );
 
+        // 4) Todo a P4 por defecto
         const base = SPACES.reduce((acc, s) => ({ ...acc, [s.id]: [] }), {});
         base["P4"] = dogs;
         const mapping = dogs.reduce((acc, d) => ({ ...acc, [d.id]: "P4" }), {});
 
         setAssignments(base);
         setDogToSpace(mapping);
-
-        // Persistimos en storage + cookie-flag del día
         saveStateToStorage(dayKey, { assignments: base, dogToSpace: mapping });
         setTodayCookieFlag("dogAssignmentsDay", dayKey);
       } catch (e) {
-        console.error("Error cargando perros:", e);
+        console.error("Error cargando mapa:", e);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDogs();
-  }, []);
+    load();
+  }, [chunk]);
 
-  // Guardado defensivo en storage ante cualquier cambio (cookie ya existe)
+  // Guardado defensivo en storage ante cambios
   useEffect(() => {
     if (!loading) {
       const dayKey = todayKey();
       saveStateToStorage(dayKey, { assignments, dogToSpace });
-      // Aseguramos cookie-flag si faltara (no pesa)
       if (getCookie("dogAssignmentsDay") !== dayKey) {
         setTodayCookieFlag("dogAssignmentsDay", dayKey);
       }
@@ -294,7 +372,6 @@ const MapaScreen = () => {
         const fromSpace = dogToSpace[dogId];
         if (!toSpaceId || fromSpace === toSpaceId) return prev;
 
-        // Buscar el perro en el espacio origen
         const dog = (prev[fromSpace] || []).find((d) => d.id === dogId);
         if (!dog) return prev;
 
@@ -302,7 +379,6 @@ const MapaScreen = () => {
         next[fromSpace] = next[fromSpace].filter((d) => d.id !== dogId);
         next[toSpaceId] = [...(next[toSpaceId] || []), dog];
 
-        // Persistencia inmediata
         const updatedMap = { ...dogToSpace, [dogId]: toSpaceId };
         const dayKey = todayKey();
         saveStateToStorage(dayKey, {
@@ -313,7 +389,6 @@ const MapaScreen = () => {
           setTodayCookieFlag("dogAssignmentsDay", dayKey);
         }
 
-        // Actualizamos índice inverso
         setDogToSpace(updatedMap);
         return next;
       });
@@ -321,7 +396,6 @@ const MapaScreen = () => {
     [dogToSpace]
   );
 
-  // Evento DnD
   const handleDragEnd = (event) => {
     const { active, over } = event;
     if (!over) return;
@@ -330,7 +404,6 @@ const MapaScreen = () => {
     if (dogId && toSpaceId) moveDog(dogId, toSpaceId);
   };
 
-  // Modal
   const openSpaceModal = (spaceId) => {
     setModalSpaceId(spaceId);
     setModalOpen(true);
@@ -341,7 +414,6 @@ const MapaScreen = () => {
   };
   const currentSpaceDogs = modalSpaceId ? assignments[modalSpaceId] || [] : [];
 
-  // Restablecer: todo a P4
   const resetToP4 = () => {
     const allDogs = Object.values(assignments).flat();
     const base = SPACES.reduce((acc, s) => ({ ...acc, [s.id]: [] }), {});
@@ -356,6 +428,16 @@ const MapaScreen = () => {
       setTodayCookieFlag("dogAssignmentsDay", dayKey);
     }
   };
+
+  const gridStyle = useMemo(
+    () => ({
+      display: "grid",
+      gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+      gridAutoRows: "120px",
+      gap: "14px",
+    }),
+    []
+  );
 
   return (
     <div className="p-4 pb-20">
@@ -381,14 +463,7 @@ const MapaScreen = () => {
       >
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
-                gridAutoRows: "120px",
-                gap: "14px",
-              }}
-            >
+            <div style={gridStyle}>
               {SPACES.map((space) => (
                 <DroppableSpace
                   key={space.id}
@@ -418,7 +493,6 @@ const MapaScreen = () => {
         </div>
       </DndContext>
 
-      {/* Modal de contenido del espacio */}
       <SpaceModal
         open={modalOpen}
         onClose={closeModal}
