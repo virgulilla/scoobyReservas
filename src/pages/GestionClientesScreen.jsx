@@ -1,10 +1,10 @@
-// Comentario: Gestión de clientes con panel de Historial (JS puro)
+// Comentario: Gestión de clientes con escaneo por cámara (BarcodeDetector) al enfocar el input de microxip
 import React, { useEffect, useState, useRef } from "react";
 import {
   collection,
   query,
   orderBy,
-  where, // Comentario: necesario para historial por id_cliente
+  where,
   startAt,
   endAt,
   startAfter,
@@ -22,22 +22,22 @@ const CLIENTES_POR_PAGINA = 10;
 const HISTORIAL_POR_PAGINA = 10;
 
 const GestionClientesScreen = () => {
-  // Comentario: refs para scroll/enfoque del formulario
+  // ---------------- Refs para scroll/enfoque del formulario ----------------
   const formRef = useRef(null);
   const firstInputRef = useRef(null);
 
-  // Comentario: estado principal
+  // ---------------- Estado principal ----------------
   const [clientes, setClientes] = useState([]);
   const [filtro, setFiltro] = useState("");
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState("");
 
-  // Comentario: paginación de clientes
+  // ---------------- Paginación de clientes ----------------
   const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
   const [firstVisibleDoc, setFirstVisibleDoc] = useState(null);
   const [firstDocStack, setFirstDocStack] = useState([]);
 
-  // Comentario: edición/creación
+  // ---------------- Edición/creación ----------------
   const [selectedClient, setSelectedClient] = useState(null);
   const [nuevoCliente, setNuevoCliente] = useState({
     perro_nombre: "",
@@ -54,8 +54,7 @@ const GestionClientesScreen = () => {
   const [clientPhotoFile, setClientPhotoFile] = useState(null);
   const [modalFoto, setModalFoto] = useState(null);
 
-  // ------------------------------------------------------------
-  // Comentario: estado del panel de historial
+  // ---------------- Estado del panel de historial ----------------
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyClient, setHistoryClient] = useState(null);
   const [historyItems, setHistoryItems] = useState([]);
@@ -64,18 +63,119 @@ const GestionClientesScreen = () => {
   const [historyLastDoc, setHistoryLastDoc] = useState(null);
   const [historyFirstDoc, setHistoryFirstDoc] = useState(null);
   const [historyStack, setHistoryStack] = useState([]);
-  // ------------------------------------------------------------
 
-  // Comentario: carga/paginación de clientes
+  // ---------------- Escáner de códigos (nativo) ----------------
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerSupported, setScannerSupported] = useState(false);
+  const [scannerError, setScannerError] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef = useRef(0);
+  const detectorRef = useRef(null);
+
+  // Comentario: comprobar soporte de APIs nativas
+  useEffect(() => {
+    const supported =
+      typeof navigator !== "undefined" &&
+      navigator.mediaDevices?.getUserMedia &&
+      "BarcodeDetector" in window;
+    setScannerSupported(!!supported);
+    if (supported) {
+      try {
+        detectorRef.current = new window.BarcodeDetector({
+          // Comentario: formatos comunes de códigos en microchips y etiquetas
+          formats: [
+            "code_128",
+            "code_39",
+            "code_93",
+            "ean_13",
+            "ean_8",
+            "upc_a",
+            "upc_e",
+            "itf",
+            "qr_code",
+            "pdf417",
+          ],
+        });
+      } catch {
+        setScannerSupported(false);
+      }
+    }
+  }, []);
+
+  // Comentario: abrir/cerrar escáner
+  const openScanner = async () => {
+    if (scannerOpen) return; // evitar reentradas
+    setScannerError("");
+    setScannerOpen(true);
+    if (!scannerSupported) return;
+    try {
+      // Comentario: usar cámara trasera si está disponible
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        startDetectLoop();
+      }
+    } catch {
+      setScannerError("No se pudo acceder a la cámara.");
+    }
+  };
+
+  const closeScanner = () => {
+    cancelAnimationFrame(rafRef.current);
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+      } catch (error) {
+        console.error(error);
+      }
+      videoRef.current.srcObject = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setScannerOpen(false);
+  };
+
+  const startDetectLoop = () => {
+    const tick = async () => {
+      if (!videoRef.current || !detectorRef.current) return;
+      try {
+        const barcodes = await detectorRef.current.detect(videoRef.current);
+        if (barcodes && barcodes.length > 0) {
+          const code = (barcodes[0].rawValue || "").trim();
+          if (code) {
+            setNuevoCliente((prev) => ({
+              ...prev,
+              microxip: prev.microxip ? prev.microxip + ", " + code : code,
+            }));
+            closeScanner();
+            return;
+          }
+        }
+      } catch {
+        // Comentario: errores de detección intermitentes son normales
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  // ---------------- Carga/paginación de clientes ----------------
   const cargarClientes = async (direction = "reset") => {
     setLoading(true);
     setMensaje("");
-
     try {
       const clientesRef = collection(db, "clients");
       const filtroLower = filtro.toLowerCase().trim();
-      let baseQuery = query(clientesRef, orderBy("perro_nombre"));
 
+      let baseQuery = query(clientesRef, orderBy("perro_nombre"));
       if (filtroLower) {
         baseQuery = query(
           clientesRef,
@@ -104,7 +204,6 @@ const GestionClientesScreen = () => {
 
       const snapshot = await getDocs(finalQuery);
       const docs = snapshot.docs;
-
       const resultados = docs.map((d) => ({ id: d.id, ...d.data() }));
 
       setClientes(resultados);
@@ -125,16 +224,16 @@ const GestionClientesScreen = () => {
     } catch (error) {
       console.error("Error al cargar clientes:", error);
       setMensaje("Error al cargar los clientes.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   useEffect(() => {
     cargarClientes("reset");
   }, []);
 
-  // Comentario: búsqueda
+  // ---------------- Búsqueda ----------------
   const handleFiltroChange = (e) => setFiltro(e.target.value);
   const handleBuscar = (e) => {
     e.preventDefault();
@@ -144,7 +243,7 @@ const GestionClientesScreen = () => {
     cargarClientes("reset");
   };
 
-  // Comentario: formulario
+  // ---------------- Formulario ----------------
   const handleInputChange = (e) => {
     const { name, type, value, checked } = e.target;
     setNuevoCliente((prev) => ({
@@ -251,12 +350,9 @@ const GestionClientesScreen = () => {
       microxip: "",
       foto_url: "",
     });
-    setClientPhotoFile(null);
-    setPhotoPreview(null);
   };
 
-  // ------------------------------------------------------------
-  // Comentario: Historial — abrir/cerrar y cargar con paginación
+  // ---------------- Historial: abrir/cerrar y cargar con paginación ----------------
   const handleVerHistorial = (cliente) => {
     setHistoryClient(cliente);
     setHistoryIncludeCanceled(false);
@@ -305,7 +401,6 @@ const GestionClientesScreen = () => {
       }
 
       const snap = await getDocs(finalQuery);
-      console.log(snap);
       let items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
       // Comentario: filtrar canceladas si el toggle está OFF
@@ -333,7 +428,9 @@ const GestionClientesScreen = () => {
       setHistoryLoading(false);
     }
   };
-  // ------------------------------------------------------------
+  // -------------------------------------------------------------------------------
+
+  // --------------------- UI ---------------------
   return (
     <div className="p-4 pb-24 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Gestión de Clientes</h1>
@@ -392,14 +489,28 @@ const GestionClientesScreen = () => {
             onChange={handleInputChange}
             className="w-full p-2 border rounded"
           />
-          <input
-            type="text"
-            name="microxip"
-            placeholder="Microchip"
-            value={nuevoCliente.microxip}
-            onChange={handleInputChange}
-            className="w-full p-2 border rounded"
-          />
+
+          {/* -------- Campo Microxip con escaneo al enfocar -------- */}
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              name="microxip"
+              placeholder="Microchip"
+              value={nuevoCliente.microxip}
+              onChange={handleInputChange}
+              onFocus={openScanner} // 👈 abre el escáner al enfocar el input
+              className="flex-1 p-2 border rounded"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            {!scannerSupported && (
+              <span className="text-xs text-amber-700">
+                El escaneo requiere navegador compatible.
+              </span>
+            )}
+          </div>
+          {/* ------------------------------------------------------- */}
+
           <textarea
             name="observaciones"
             placeholder="Observaciones"
@@ -464,6 +575,7 @@ const GestionClientesScreen = () => {
         </div>
       </div>
 
+      {/* ---------------- Lista de clientes ---------------- */}
       <div className="space-y-4">
         {clientes.map((cliente) => (
           <div
@@ -512,6 +624,7 @@ const GestionClientesScreen = () => {
         ))}
       </div>
 
+      {/* ---------------- Paginación ---------------- */}
       <div className="flex justify-between items-center mt-6">
         <button
           onClick={() => cargarClientes("prev")}
@@ -529,8 +642,7 @@ const GestionClientesScreen = () => {
         </button>
       </div>
 
-      {/* -------------------------------------------------------- */}
-      {/* Comentario: Drawer de Historial */}
+      {/* ---------------- Drawer de Historial ---------------- */}
       {historyOpen && (
         <div className="fixed inset-0 z-50 flex">
           <div
@@ -559,7 +671,6 @@ const GestionClientesScreen = () => {
                   checked={historyIncludeCanceled}
                   onChange={(e) => {
                     setHistoryIncludeCanceled(e.target.checked);
-                    // Comentario: recargar desde el inicio al cambiar el filtro
                     if (historyClient) cargarHistorial(historyClient, "reset");
                   }}
                 />
@@ -642,6 +753,8 @@ const GestionClientesScreen = () => {
           </div>
         </div>
       )}
+
+      {/* ---------------- Modal foto ---------------- */}
       {modalFoto && (
         <div
           className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50"
@@ -651,8 +764,54 @@ const GestionClientesScreen = () => {
             src={modalFoto}
             alt="Foto ampliada"
             className="max-w-full max-h-full rounded-lg shadow-lg"
-            onClick={(e) => e.stopPropagation()} // evita cerrar si se hace clic sobre la imagen
+            onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* ---------------- Modal del escáner ---------------- */}
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={closeScanner}
+          />
+          <div className="relative bg-white w-full max-w-sm rounded-lg p-3 shadow-lg z-10">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold">Escanear microchip</h4>
+              <button onClick={closeScanner} className="text-gray-600">
+                ✕
+              </button>
+            </div>
+
+            {scannerSupported ? (
+              <>
+                <div className="relative">
+                  {/* Comentario: vista de cámara */}
+                  <video
+                    ref={videoRef}
+                    className="w-full rounded bg-black"
+                    playsInline
+                    muted
+                  />
+                  {/* Comentario: marco guía */}
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="w-48 h-24 border-2 border-emerald-400 rounded" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mt-2">
+                  Apunta al código. Se rellenará automáticamente al detectar.
+                </p>
+                {scannerError && (
+                  <p className="text-xs text-red-600 mt-1">{scannerError}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-700">
+                El dispositivo o navegador no soporta escaneo nativo.
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
