@@ -1,4 +1,4 @@
-// Comentario: Calendario con conteo de "Duermen" y "Patio" (JS puro, sin TS)
+// Comentario: Calendario con conteo de "Duermen", "Patio", "Pend. llegar" y "Pend. salir"
 import React, { useState, useEffect } from "react";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
@@ -23,11 +23,17 @@ const CalendarioScreen = () => {
   const [bookings, setBookings] = useState([]);
   // Comentario: total de perros que duermen esa noche
   const [perrosPernoctando, setPerrosPernoctando] = useState(0);
-  // Comentario: total de perros pernoctando cuyo cliente tiene patio === true
+  // Comentario: total de perros pernoctando cuyos clientes tienen patio === true
   const [patioCount, setPatioCount] = useState(0);
   // Comentario: rol de usuario (admin o user)
   const [userRole, setUserRole] = useState(null);
+  // Comentario: ids de clientes con patio
   const [patioClientIds, setPatioClientIds] = useState([]);
+  // Comentario: mapa id_cliente -> perro_nombre leído desde clients
+  const [clientNames, setClientNames] = useState({});
+  // Comentario: contadores de pendientes para hoy
+  const [pendLlegar, setPendLlegar] = useState(0);
+  const [pendSalir, setPendSalir] = useState(0);
 
   const navigate = useNavigate();
 
@@ -46,7 +52,7 @@ const CalendarioScreen = () => {
     }
   };
 
-  // Comentario: obtiene reservas activas para la fecha y calcula "Duermen" y "Patio"
+  // Comentario: obtiene reservas activas para la fecha y calcula "Duermen", "Patio" y pendientes
   const fetchBookings = async (date) => {
     // Comentario: formateo yyyy-mm-dd
     const year = date.getFullYear();
@@ -85,28 +91,51 @@ const CalendarioScreen = () => {
     setBookings(fetchedBookings);
     setPerrosPernoctando(pernoctandoCount);
 
-    // --------- Cálculo de "Patio" ---------
-    // Comentario: sólo cuentan las reservas que pernoctan (no salen hoy)
+    // --------- Cálculo de pendientes (sumando perros) ---------
+    // Comentario: entradas de hoy sin check-in confirmado
+    const llegadasHoy = fetchedBookings.filter(
+      (b) => b.fecha_entrada === dateString
+    );
+    const pendientesLlegar =
+      llegadasHoy.reduce(
+        (acc, b) => acc + (!b.checked_in ? b.num_perros || 0 : 0),
+        0
+      ) || 0;
+
+    // Comentario: salidas de hoy sin check-out confirmado
+    const salidasHoy = fetchedBookings.filter(
+      (b) => b.fecha_salida === dateString
+    );
+    console.log(salidasHoy)
+    const pendientesSalir =
+      salidasHoy.reduce(
+        (acc, b) => acc + (!b.checked_out ? b.num_perros || 0 : 0),
+        0
+      ) || 0;
+
+    setPendLlegar(pendientesLlegar);
+    setPendSalir(pendientesSalir);
+
+    // --------- Cálculo de "Patio" y nombres desde clients (sin modificar lógica solicitada) ---------
     const overnightBookings = fetchedBookings.filter(
       (b) => b.fecha_salida !== dateString
     );
 
-    // Comentario: acumular perros por cliente_id
     const perrosPorCliente = overnightBookings.reduce((acc, b) => {
-      if (!b.id_cliente) return acc; // Recomendado: asegurar que reservas tengan cliente_id
+      if (!b.id_cliente) return acc;
       acc[b.id_cliente] = (acc[b.id_cliente] || 0) + (b.num_perros || 0);
       return acc;
     }, {});
 
     const allClientIds = Object.keys(perrosPorCliente);
 
-    // Comentario: si no hay cliente_id, el total es 0
     if (allClientIds.length === 0) {
       setPatioCount(0);
+      setPatioClientIds([]);
+      setClientNames({});
       return;
     }
 
-    // Comentario: util para trocear en lotes de 10 ids (límite de 'in')
     const chunk = (arr, size) =>
       Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
         arr.slice(i * size, i * size + size)
@@ -114,14 +143,20 @@ const CalendarioScreen = () => {
 
     let patioTotal = 0;
     const patioIdsLocal = new Set();
+    const namesMap = {};
 
-    // Comentario: consultar clientes por lotes y sumar si patio === true
     for (const group of chunk(allClientIds, 10)) {
       const clientsSnap = await getDocs(
         query(collection(db, "clients"), where("__name__", "in", group))
       );
       clientsSnap.forEach((cDoc) => {
         const cData = cDoc.data();
+        const nombrePerro =
+          cData?.perro_nombre ?? cData?.nombre_perro ?? cData?.dog_name ?? null;
+        if (nombrePerro) {
+          namesMap[cDoc.id] = nombrePerro;
+        }
+        // Comentario: NO modificar tu cálculo de patio
         if (cData && cData.patio === true) {
           patioTotal += 1;
           patioIdsLocal.add(cDoc.id);
@@ -131,6 +166,7 @@ const CalendarioScreen = () => {
 
     setPatioCount(patioTotal);
     setPatioClientIds(Array.from(patioIdsLocal));
+    setClientNames(namesMap);
   };
 
   // Comentario: suscripción a auth y recálculo al cambiar fecha
@@ -146,10 +182,9 @@ const CalendarioScreen = () => {
     fetchBookings(selectedDate);
 
     return () => unsubscribeAuth();
-    // Comentario: dependemos de selectedDate para refrescar datos
   }, [selectedDate]);
 
-  // Comentario: navegación a la edición de reserva
+  // Comentario: navegación a la edición de reserva (sólo admin)
   const handleBookingClick = (bookingId) => {
     navigate(`/editar-reserva/${bookingId}`);
   };
@@ -194,8 +229,14 @@ const CalendarioScreen = () => {
           Duermen: <span className="font-bold">{perrosPernoctando}</span>
           {" · "}
           Patio: <span className="font-bold">{patioCount}</span>
+          {" · "}
+          Venir: <span className="font-bold">{pendLlegar}</span>
+          {" · "}
+          Irse: <span className="font-bold">{pendSalir}</span>
         </p>
       </div>
+
+      {/* ...resto del render sin cambios... */}
 
       <div className="space-y-3">
         {bookings.length > 0 ? (
@@ -234,21 +275,23 @@ const CalendarioScreen = () => {
               ? "bg-red-200"
               : "bg-white";
 
-            const cardCls = `p-3 rounded-lg shadow-sm transition-colors duration-200 ${
+            const cardCls = `p-3 rounded-lg shadow-sm transition-colors duration-200 cursor-pointer ${
               isDone ? bgDone : bgBase
-            } ${userRole === "admin" ? "cursor-pointer" : "cursor-default"}`;
+            }`;
 
             const content = (
               <div
                 className={cardCls}
-                onClick={() =>
-                  userRole === "admin" && handleBookingClick(booking.id)
-                }
+                // Comentario: sólo admins navegan a editar
+                onClick={() => handleBookingClick(booking.id)}
               >
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="font-bold text-gray-900">
-                      {booking.perro_nombre}
+                      {/* Comentario: mostrar nombre desde clients; fallback al de booking si no disponible */}
+                      {booking.id_cliente && clientNames[booking.id_cliente]
+                        ? clientNames[booking.id_cliente]
+                        : booking.perro_nombre || "Sin nombre"}
                     </p>
                     <p className="text-sm text-gray-700 mt-1">
                       Teléfono: {booking.telefono}

@@ -979,23 +979,24 @@ const NuevaReservaScreen = () => {
                 </div>
               </div>
             </div>
-
-            <button
-              type="submit"
-              disabled={loading || isFormReadOnly}
-              className={commonButtonClasses}
-            >
-              {loading ? "Guardando..." : "Guardar Reserva"}
-            </button>
-
             {bookingId && !isFormReadOnly && (
-              <button
-                type="button"
-                onClick={handleCancelBookingClick}
-                className="w-full px-4 py-2 mt-2 font-bold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                Cancelar Reserva
-              </button>
+              <>
+                <button
+                  type="submit"
+                  disabled={loading || isFormReadOnly}
+                  className={commonButtonClasses}
+                >
+                  {loading ? "Guardando..." : "Guardar Reserva"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelBookingClick}
+                  className="w-full px-4 py-2 mt-2 font-bold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  Cancelar Reserva
+                </button>
+              </>
             )}
           </form>
         </div>

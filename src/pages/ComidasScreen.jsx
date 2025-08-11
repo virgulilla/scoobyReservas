@@ -15,47 +15,83 @@ const ComidasScreen = () => {
   const [perrosPernoctando, setPerrosPernoctando] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchPerrosPernoctando = async () => {
-    setLoading(true);
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-    const dateString = `${year}-${month}-${day}`;
-
-    // Consulta todas las reservas que entraron en o antes de hoy
-    const bookingsQuery = query(
-      collection(db, "reservations"),
-      where("fecha_entrada", "<=", dateString)
+  // Comentario: util para trocear en lotes (límite 'in' = 10)
+  const chunk = (arr, size = 10) =>
+    Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
+      arr.slice(i * size, i * size + size)
     );
 
-    const querySnapshot = await getDocs(bookingsQuery);
-    const pernoctando = [];
-    const bookings = querySnapshot.docs
-      .map((doc) => ({ id: doc.id, ...doc.data() }))
-      // Comentario: ordenar en cliente por perro_nombre alfabéticamente (case-insensitive)
-      .sort((a, b) => {
-        const nombreA = (a.perro_nombre || "").toLowerCase();
-        const nombreB = (b.perro_nombre || "").toLowerCase();
-        return nombreA.localeCompare(nombreB, "es", { sensitivity: "base" });
-      });
+  const fetchPerrosPernoctando = async () => {
+    setLoading(true);
+    try {
+      // Comentario: fecha de hoy en formato yyyy-mm-dd
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, "0");
+      const day = String(today.getDate()).padStart(2, "0");
+      const dateString = `${year}-${month}-${day}`;
 
-    bookings.forEach((bookingData) => {
-      // Omitir canceladas
-      if (bookingData.is_cancelada) return;
+      // Comentario: reservas activas hoy
+      const bookingsQuery = query(
+        collection(db, "reservations"),
+        where("fecha_entrada", "<=", dateString),
+        where("fecha_salida", ">=", dateString)
+      );
+      const snap = await getDocs(bookingsQuery);
 
-      // Solo perros que siguen durmiendo después de dateString
-      if (bookingData.fecha_salida > dateString) {
-        pernoctando.push({
-          id: bookingData.id,
-          nombre: bookingData.perro_nombre,
-          haComido: bookingData.ha_comido || false,
-        });
+      // Comentario: filtrar canceladas y que pernoctan (salida > hoy)
+      const bookings = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((b) => !b.is_cancelada && b.fecha_salida > dateString);
+
+      // Comentario: recolectar ids de cliente presentes
+      const clientIds = Array.from(
+        new Set(
+          bookings
+            .map((b) => b.id_cliente)
+            .filter((id) => typeof id === "string" && id.length > 0)
+        )
+      );
+
+      // Comentario: mapa id_cliente -> nombre_perro desde clients
+      const clientDogNames = {};
+      if (clientIds.length > 0) {
+        for (const group of chunk(clientIds, 10)) {
+          const clientsSnap = await getDocs(
+            query(collection(db, "clients"), where("__name__", "in", group))
+          );
+          clientsSnap.forEach((cDoc) => {
+            const c = cDoc.data();
+            // Comentario: soportar variantes de campo
+            const nombrePerro =
+              c?.perro_nombre ?? c?.nombre_perro ?? c?.dog_name ?? null;
+            if (nombrePerro) clientDogNames[cDoc.id] = nombrePerro;
+          });
+        }
       }
-    });
 
-    setPerrosPernoctando(pernoctando);
-    setLoading(false);
+      // Comentario: construir lista final con nombre desde clients y fallback
+      const pernoctando = bookings
+        .map((b) => ({
+          id: b.id,
+          nombre:
+            (b.id_cliente && clientDogNames[b.id_cliente]) ||
+            b.perro_nombre ||
+            "Sin nombre",
+          haComido: !!b.ha_comido,
+        }))
+        // Comentario: ordenar por nombre mostrado
+        .sort((a, b) =>
+          a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })
+        );
+
+      setPerrosPernoctando(pernoctando);
+    } catch (e) {
+      console.error("Error al cargar pernoctas:", e);
+      setPerrosPernoctando([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleComido = async (perroId, haComidoActual) => {
@@ -88,7 +124,7 @@ const ComidasScreen = () => {
       collection(db, "reservations"),
       where("fecha_salida", ">=", dateString),
       where("ha_comido", "==", true),
-      where("is_cancelada", "==", false) // Nueva condición para excluir canceladas
+      where("is_cancelada", "==", false)
     );
 
     try {

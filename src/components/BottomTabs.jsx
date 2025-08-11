@@ -48,18 +48,18 @@ const BottomTabs = ({ isAdmin }) => {
           💳 <span className="text-xs">Morosos</span>
         </NavLink>
 
+        <NavLink
+          to="/mapa"
+          className={({ isActive }) =>
+            `${baseClasses} ${isActive ? activeClasses : ""}`
+          }
+        >
+          🗺️ <span className="text-xs">Mapa</span>
+        </NavLink>
+
         {/* Comentario: tabs solo para administradores */}
         {isAdmin && (
           <>
-            <NavLink
-              to="/mapa"
-              className={({ isActive }) =>
-                `${baseClasses} ${isActive ? activeClasses : ""}`
-              }
-            >
-              🗺️ <span className="text-xs">Mapa</span>
-            </NavLink>
-
             <NavLink
               to="/reportes"
               className={({ isActive }) =>
