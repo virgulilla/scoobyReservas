@@ -1,6 +1,4 @@
-// Comentario: Comidas optimizado. Usa caché global de clients para nombres y minimiza lecturas.
-// - Carga reservas activas hoy que pernoctan y construye la lista con nombres desde caché.
-// - Sólo consulta clients faltantes en lotes de 10.
+// Comentario: Comidas optimizado con prioridad. Usa caché global y minimiza lecturas.
 import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../firebase/config";
 import {
@@ -31,7 +29,7 @@ const toYmd = (d) => {
 const ComidasScreen = () => {
   const { clientNameCache } = useApp();
 
-  const [items, setItems] = useState([]); // Comentario: [{id, nombre, haComido}]
+  const [items, setItems] = useState([]); // Comentario: [{id, nombre, haComido, esPrioridad}]
   const [loading, setLoading] = useState(true);
   const [cacheTick, setCacheTick] = useState(0); // Comentario: re-render tras llenar caché
 
@@ -86,10 +84,15 @@ const ComidasScreen = () => {
             b.perro_nombre ||
             "Sin nombre",
           haComido: !!b.ha_comido,
+          esPrioridad: !!b.prioridad_comida,
         }))
-        .sort((a, b) =>
-          a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })
-        );
+        // Comentario: ordenar por prioridad desc y luego alfabético
+        .sort((a, b) => {
+          if (a.esPrioridad !== b.esPrioridad) return a.esPrioridad ? -1 : 1;
+          return a.nombre.localeCompare(b.nombre, "es", {
+            sensitivity: "base",
+          });
+        });
 
       setItems(list);
       setLoading(false);
@@ -110,37 +113,81 @@ const ComidasScreen = () => {
         ha_comido: !haComidoActual,
       });
       setItems((prev) =>
-        prev.map((p) =>
-          p.id === perroId ? { ...p, haComido: !haComidoActual } : p
-        )
+        prev
+          .map((p) =>
+            p.id === perroId ? { ...p, haComido: !haComidoActual } : p
+          )
+          // Comentario: reordenar tras cambio por si afecta a la prioridad visible
+          .sort((a, b) => {
+            if (a.esPrioridad !== b.esPrioridad) return a.esPrioridad ? -1 : 1;
+            return a.nombre.localeCompare(b.nombre, "es", {
+              sensitivity: "base",
+            });
+          })
       );
     } catch (error) {
       console.error("Error al actualizar el estado de la comida:", error);
     }
   };
 
+  const togglePrioridad = async (perroId, esPrioridadActual) => {
+    try {
+      await updateDoc(doc(db, "reservations", perroId), {
+        prioridad_comida: !esPrioridadActual,
+      });
+      setItems((prev) =>
+        prev
+          .map((p) =>
+            p.id === perroId ? { ...p, esPrioridad: !esPrioridadActual } : p
+          )
+          // Comentario: reordenar porque prioridad cambia el orden
+          .sort((a, b) => {
+            if (a.esPrioridad !== b.esPrioridad) return a.esPrioridad ? -1 : 1;
+            return a.nombre.localeCompare(b.nombre, "es", {
+              sensitivity: "base",
+            });
+          })
+      );
+    } catch (error) {
+      console.error("Error al actualizar la prioridad:", error);
+    }
+  };
+
+  // Comentario: desmarca comida y prioridad para todas las reservas pernoctando hoy
   const uncheckAll = async () => {
     const today = new Date();
     const dateString = toYmd(today);
 
-    const pernoctandoQuery = query(
+    // Comentario: base: pernoctando hoy y no canceladas
+    const baseQuery = query(
       collection(db, "reservations"),
       where("fecha_salida", ">=", dateString),
-      where("ha_comido", "==", true),
       where("is_cancelada", "==", false)
     );
 
     try {
-      const querySnapshot = await getDocs(pernoctandoQuery);
-      if (querySnapshot.size > 0) {
+      // Comentario: dos consultas para evitar OR; unimos resultados
+      const [comidoSnap, prioSnap] = await Promise.all([
+        getDocs(query(baseQuery, where("ha_comido", "==", true))),
+        getDocs(query(baseQuery, where("prioridad_comida", "==", true))),
+      ]);
+
+      const toUpdate = new Map(); // Comentario: id -> ref
+      comidoSnap.forEach((d) => toUpdate.set(d.id, d.ref));
+      prioSnap.forEach((d) => toUpdate.set(d.id, d.ref));
+
+      if (toUpdate.size > 0) {
         const batch = writeBatch(db);
-        querySnapshot.forEach((document) => {
-          batch.update(document.ref, { ha_comido: false });
-        });
+        toUpdate.forEach((ref) =>
+          batch.update(ref, { ha_comido: false, prioridad_comida: false })
+        );
         await batch.commit();
-        // Comentario: refresco local
-        setItems((prev) => prev.map((p) => ({ ...p, haComido: false })));
       }
+
+      // Comentario: refresco local
+      setItems((prev) =>
+        prev.map((p) => ({ ...p, haComido: false, esPrioridad: false }))
+      );
     } catch (error) {
       console.error("Error al desmarcar todas las reservas:", error);
     }
@@ -151,7 +198,7 @@ const ComidasScreen = () => {
   }
 
   return (
-    <div className="p-4 pb-16 bg-gray-100 min-h-screen">
+    <div className="p-4 pb-16 bg-gray-100 min-h-dvh w-full max-w-full overflow-x-hidden">
       <h1 className="text-2xl font-bold mb-4 text-gray-800">
         Control de Comidas del Día
       </h1>
@@ -182,34 +229,100 @@ const ComidasScreen = () => {
       <div className="space-y-4">
         {items.length > 0 ? (
           items.map((perro) => (
-            <SwipeItem
-              key={perro.id}
-              onConfirm={() => toggleComido(perro.id, perro.haComido)}
-              threshold={96}
-              completed={perro.haComido}
-              className={`p-4 rounded-lg shadow-sm transition-colors ${
-                perro.haComido
-                  ? "bg-emerald-500 text-white"
-                  : "bg-white text-gray-800"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <p
-                  className={`font-semibold text-lg ${
-                    perro.haComido ? "line-through" : ""
-                  }`}
-                >
-                  {perro.nombre}
-                </p>
-                <span
-                  className={`text-xs select-none ${
-                    perro.haComido ? "opacity-80" : "text-gray-400"
-                  }`}
-                >
-                  Desliza ➔
-                </span>
-              </div>
-            </SwipeItem>
+            <div key={perro.id} className="overflow-hidden rounded-lg">
+              <SwipeItem
+                key={perro.id}
+                onConfirm={() => toggleComido(perro.id, perro.haComido)}
+                threshold={96}
+                completed={perro.haComido}
+                className={`w-full p-4 rounded-lg shadow-sm transition-colors ${
+                  perro.haComido
+                    ? "bg-emerald-500 text-white"
+                    : "bg-white text-gray-800"
+                }`}
+                style={{
+                  contain: "layout paint", // Comentario: aísla el layout del swipe
+                  touchAction: "pan-y", // Comentario: evita scroll horizontal del documento
+                  overscrollBehaviorX: "contain", // Comentario: suprime rebote lateral iOS
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Comentario: botón de estrella. Solo interactivo si NO ha comido */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !perro.haComido &&
+                        togglePrioridad(perro.id, perro.esPrioridad)
+                      }
+                      aria-label={
+                        perro.esPrioridad
+                          ? "Quitar prioridad de comida"
+                          : "Marcar como prioridad de comida"
+                      }
+                      className={`p-1 rounded focus:outline-none focus:ring ${
+                        perro.haComido
+                          ? "cursor-not-allowed opacity-40"
+                          : "hover:opacity-80"
+                      }`}
+                      disabled={perro.haComido}
+                    >
+                      {/* Comentario: estrella rellena si esPrioridad, contorno si no */}
+                      {perro.esPrioridad ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          className={`w-6 h-6 ${
+                            perro.haComido ? "text-white" : "text-amber-500"
+                          }`}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l2.118 6.54h6.886c.969 0 1.371 1.24.588 1.81l-5.57 4.05 2.118 6.54c.3.921-.755 1.688-1.54 1.118l-5.57-4.05-5.57 4.05c-.784.57-1.838-.197-1.539-1.118l2.118-6.54-5.57-4.05c-.783-.57-.38-1.81.588-1.81h6.885l2.118-6.54z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          className={`w-6 h-6 ${
+                            perro.haComido ? "text-white" : "text-amber-500"
+                          }`}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l2.118 6.54h6.886c.969 0 1.371 1.24.588 1.81l-5.57 4.05 2.118 6.54c.3.921-.755 1.688-1.54 1.118l-5.57-4.05-5.57 4.05c-.784.57-1.838-.197-1.539-1.118l2.118-6.54-5.57-4.05c-.783-.57-.38-1.81.588-1.81h6.885l2.118-6.54z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+
+                    <p
+                      className={`font-semibold text-lg ${
+                        perro.haComido ? "line-through" : ""
+                      }`}
+                    >
+                      {perro.nombre}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`text-xs select-none ${
+                      perro.haComido ? "opacity-80" : "text-gray-400"
+                    }`}
+                  >
+                    Desliza ➔
+                  </span>
+                </div>
+              </SwipeItem>
+            </div>
           ))
         ) : (
           <p className="text-center text-gray-500">
