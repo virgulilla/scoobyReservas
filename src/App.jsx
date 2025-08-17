@@ -13,6 +13,8 @@ const GestionClientesScreen = lazy(() =>
 );
 const MapaScreen = lazy(() => import("./pages/MapaScreen"));
 const MorososScreen = lazy(() => import("./pages/MorososScreen"));
+// Comentario: nueva pantalla Encuesta
+const EncuestaScreen = lazy(() => import("./pages/EncuestaScreen"));
 
 function App() {
   return (
@@ -26,7 +28,7 @@ function App() {
             <Route path="precios" element={<PreciosScreen />} />
             <Route path="reportes" element={<ReportesScreen />} />
             <Route path="comidas" element={<ComidasScreen />} />
-            <Route path="/morosos" element={<MorososScreen />} />
+            <Route path="morosos" element={<MorososScreen />} />
             <Route path="mapa" element={<MapaScreen />} />
             <Route path="nueva-reserva" element={<NuevaReservaScreen />} />
             <Route
@@ -37,10 +39,13 @@ function App() {
               path="editar-reserva/:bookingId"
               element={<NuevaReservaScreen />}
             />
+            {/* Comentario: ruta para encuesta */}
+            <Route path="encuesta" element={<EncuestaScreen />} />
           </Route>
         </Routes>
       </Suspense>
     </Router>
   );
 }
+
 export default App;

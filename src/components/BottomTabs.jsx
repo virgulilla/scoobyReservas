@@ -71,6 +71,17 @@ const BottomTabs = ({ isAdmin }) => {
           </>
         )}
 
+        {/* Comentario: nuevo tab Encuesta */}
+        <NavLink
+          to="/encuesta"
+          className={({ isActive }) =>
+            `${baseClasses} ${isActive ? activeClasses : ""}`
+          }
+          aria-label="Encuesta"
+        >
+          🗳️ <span className="text-xs">Encuesta</span>
+        </NavLink>
+
         <NavLink
           to="/precios"
           className={({ isActive }) =>
