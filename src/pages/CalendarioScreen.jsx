@@ -32,8 +32,7 @@ const toYmd = (d) => {
 
 const CalendarioScreen = () => {
   // Comentario: contexto global para rol y caché de clients
-  const { role, user, clientNameCache, clientPatioCache } = useApp();
-  const isAdmin = role === "admin";
+  const { user, clientNameCache, clientPatioCache } = useApp();
   const navigate = useNavigate();
 
   // Comentario: estado mínimo
@@ -157,7 +156,6 @@ const CalendarioScreen = () => {
   };
 
   const handleBookingClick = (bookingId) => {
-    if (!isAdmin) return;
     navigate(`/editar-reserva/${bookingId}`);
   };
 
